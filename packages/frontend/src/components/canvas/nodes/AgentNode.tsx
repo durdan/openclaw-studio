@@ -3,6 +3,14 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { AgentNodeConfig } from '@openclaw-studio/shared';
+import { ValidationState } from '@openclaw-studio/shared';
+
+const validationColors: Record<string, { dot: string; ring: string }> = {
+  [ValidationState.Valid]: { dot: 'bg-green-500', ring: 'ring-green-400/20' },
+  [ValidationState.Warning]: { dot: 'bg-yellow-500', ring: 'ring-yellow-400/20' },
+  [ValidationState.Incomplete]: { dot: 'bg-gray-500', ring: 'ring-gray-400/20' },
+  [ValidationState.Invalid]: { dot: 'bg-red-500', ring: 'ring-red-400/20' },
+};
 
 const MODEL_LABELS: Record<string, string> = {
   'claude-sonnet-4-20250514': 'Claude Sonnet 4',
@@ -20,6 +28,8 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
   const modelLabel = MODEL_LABELS[config.model || ''] || config.model || 'No model';
   const toolsList = config.tools || [];
   const skillsList = config.skills || [];
+  const vState = (data?.validation_state || 'incomplete') as string;
+  const vStyle = validationColors[vState] || validationColors[ValidationState.Incomplete];
 
   return (
     <div
@@ -40,8 +50,11 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
             </svg>
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-studio-text truncate">
-              {config.name || 'Unnamed Agent'}
+            <div className="flex items-center gap-1.5">
+              <div className="text-sm font-semibold text-studio-text truncate">
+                {config.name || 'Unnamed Agent'}
+              </div>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${vStyle.dot}`} title={`Validation: ${vState}`} />
             </div>
             {(config.role || config.description) && (
               <div className="text-[10px] text-studio-text-muted/70 line-clamp-2 mt-0.5 leading-snug">

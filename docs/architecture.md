@@ -433,6 +433,60 @@ graph TB
 
 ---
 
+## Validation Flow
+
+Validation runs at three points — silently after AI changes, on manual trigger, and as a gate before publish:
+
+```mermaid
+graph TB
+    subgraph Triggers ["Validation Triggers"]
+        T1["AI generates/modifies graph"]
+        T2["User clicks Validate button"]
+        T3["User opens Publish dialog"]
+    end
+
+    subgraph AutoValidation ["Auto-Validation (useValidation hook)"]
+        Debounce["Wait 2 seconds<br/>(debounce)"]
+        T1 --> Debounce
+    end
+
+    subgraph ManualValidation ["Manual Validation"]
+        T2 --> CallAPI
+    end
+
+    subgraph PublishGate ["Publish Gate"]
+        T3 --> CallAPI
+    end
+
+    Debounce --> CallAPI["POST /api/validation/validate<br/>(send graph)"]
+
+    subgraph Backend ["Backend Validation Service"]
+        CallAPI --> RunRules["Run 14 rules"]
+        RunRules --> UpdateNodes["Update node.validation_state<br/>(valid/warning/invalid/incomplete)"]
+        UpdateNodes --> ReturnResult["Return ValidationResult<br/>{valid, errors[], warnings[]}"]
+    end
+
+    subgraph UI ["UI Feedback"]
+        ReturnResult --> NodeDots["Canvas: Update node dots<br/>🟢 green / 🟡 yellow / 🔴 red"]
+        ReturnResult --> Badge["Validate button: Count badge<br/>red=errors, yellow=warnings, green=ok"]
+        ReturnResult --> Toast["Toast notification<br/>(manual validate only)"]
+        ReturnResult --> DialogBanner["Publish dialog: Error/warning list<br/>+ block Publish if errors"]
+    end
+```
+
+### Validation State on Nodes
+
+Each node on the canvas shows a colored validation dot:
+
+| State | Color | Meaning |
+|-------|-------|---------|
+| `valid` | Green | All checks passed |
+| `warning` | Yellow | Has warnings (non-blocking) |
+| `invalid` | Red | Has errors (blocks publish) |
+| `incomplete` | Gray | Not yet validated |
+
+---
+
 ## Validation Rules
 
 14 rules run before export:

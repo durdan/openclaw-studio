@@ -101,12 +101,18 @@ Click any agent on the canvas to open the properties panel:
 
 ### 3. Validate
 
-14 rules check your design: agents need names/roles/goals, skills need purposes, tools need bindings, graph needs at least one agent.
+Validation runs at three points:
+
+- **Automatic** — 2 seconds after the AI modifies the graph. Updates colored dots on each node (green/yellow/red).
+- **Manual** — Click the **Validate** button in the floating bar. Shows a toast with error/warning counts and a live badge.
+- **Pre-publish gate** — When you open the Publish dialog, validation runs automatically. Errors are listed inline and **block publishing** until fixed.
+
+14 rules check agents (name/role/goal), skills (purpose), tools (binding/type), heartbeats (schedule/mode), and graph structure.
 
 ### 4. Publish
 
-1. **Generate Preview** — browse all workspace files before publishing
-2. **Publish to OpenClaw** — writes files to `~/.openclaw/` (configurable)
+1. **Generate Preview** — browse all workspace files before publishing (blocked if validation errors)
+2. **Publish to OpenClaw** — writes files to `~/.openclaw/` (configurable, blocked if errors)
 3. **Download Files** — download workspace files for manual deployment
 4. Run `openclaw restart` to pick up changes
 

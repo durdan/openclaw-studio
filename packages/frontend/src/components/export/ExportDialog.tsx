@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Modal } from '@/components/common/Modal';
 import { useToast } from '@/components/common/Toast';
 import { api } from '@/lib/api';
 import { useDesignStore } from '@/store/design.store';
-import type { PublishResult } from '@openclaw-studio/shared';
+import type { PublishResult, ValidationResult } from '@openclaw-studio/shared';
 
 interface ExportDialogProps {
   isOpen: boolean;
@@ -23,6 +23,7 @@ type PublishMode = 'preview' | 'filesystem' | 'download';
 
 export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
   const activeDesign = useDesignStore((s) => s.activeDesign);
+  const validateDesign = useDesignStore((s) => s.validateDesign);
   const { toast } = useToast();
 
   const [mode, setMode] = useState<PublishMode>('preview');
@@ -31,6 +32,28 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
   const [outputDir, setOutputDir] = useState('~/.openclaw');
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+
+  // Run validation when dialog opens
+  useEffect(() => {
+    if (isOpen && activeDesign?.graph) {
+      setIsValidating(true);
+      validateDesign().then(() => {
+        const result = useDesignStore.getState().validationResult;
+        setValidation(result);
+        setIsValidating(false);
+      });
+    }
+    if (!isOpen) {
+      setValidation(null);
+      setPreview(null);
+      setPublishResult(null);
+      setSelectedFile(null);
+    }
+  }, [isOpen, activeDesign?.graph, validateDesign]);
+
+  const hasErrors = validation && !validation.valid;
 
   const getRequestBody = () => {
     if (!activeDesign) return null;
@@ -117,6 +140,69 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Publish to OpenClaw" maxWidth="max-w-3xl">
       <div className="space-y-4">
+        {/* Validation status banner */}
+        {isValidating && (
+          <div className="flex items-center gap-2 rounded-lg border border-studio-border bg-studio-bg/50 px-3 py-2 text-xs text-studio-text-muted">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Validating design...
+          </div>
+        )}
+        {validation && !isValidating && (
+          <div className={`rounded-lg border p-3 text-xs ${
+            validation.valid
+              ? validation.warnings.length > 0
+                ? 'border-yellow-500/30 bg-yellow-500/5'
+                : 'border-green-500/30 bg-green-500/5'
+              : 'border-red-500/30 bg-red-500/5'
+          }`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${
+                validation.valid
+                  ? validation.warnings.length > 0 ? 'bg-yellow-500' : 'bg-green-500'
+                  : 'bg-red-500'
+              }`} />
+              <span className={`font-semibold ${
+                validation.valid
+                  ? validation.warnings.length > 0 ? 'text-yellow-400' : 'text-green-400'
+                  : 'text-red-400'
+              }`}>
+                {validation.valid
+                  ? validation.warnings.length > 0 ? 'Valid with warnings' : 'All checks passed'
+                  : `${validation.errors.length} error${validation.errors.length > 1 ? 's' : ''} found`
+                }
+              </span>
+            </div>
+            {/* Show errors */}
+            {validation.errors.length > 0 && (
+              <ul className="mt-2 space-y-1 text-red-400/90">
+                {validation.errors.map((e, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className="mt-0.5 text-red-500">-</span>
+                    <span>{e.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {/* Show warnings */}
+            {validation.warnings.length > 0 && (
+              <ul className={`${validation.errors.length > 0 ? 'mt-1' : 'mt-2'} space-y-1 text-yellow-400/90`}>
+                {validation.warnings.map((w, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className="mt-0.5 text-yellow-500">-</span>
+                    <span>{w.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {hasErrors && (
+              <p className="mt-2 text-[10px] text-red-400/60">Fix errors before publishing</p>
+            )}
+          </div>
+        )}
+
         {/* Step 1: Preview */}
         {!preview && (
           <div className="text-center py-8">
@@ -129,10 +215,10 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
             </p>
             <button
               onClick={handlePreview}
-              disabled={isLoading || !activeDesign?.graph}
+              disabled={isLoading || !activeDesign?.graph || !!hasErrors}
               className="rounded-lg bg-studio-accent px-5 py-2 text-sm font-medium text-white hover:bg-studio-accent-hover disabled:opacity-50 transition-colors"
             >
-              {isLoading ? 'Generating...' : 'Generate Preview'}
+              {isLoading ? 'Generating...' : hasErrors ? 'Fix errors to continue' : 'Generate Preview'}
             </button>
           </div>
         )}
@@ -247,13 +333,14 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
                 </div>
                 <button
                   onClick={handlePublishToFilesystem}
-                  disabled={isLoading}
+                  disabled={isLoading || !!hasErrors}
                   className="flex items-center gap-1.5 rounded-lg bg-studio-accent px-4 py-2 text-xs font-medium text-white hover:bg-studio-accent-hover disabled:opacity-50 transition-colors"
+                  title={hasErrors ? 'Fix validation errors before publishing' : undefined}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
-                  {isLoading ? 'Publishing...' : 'Publish to OpenClaw'}
+                  {isLoading ? 'Publishing...' : hasErrors ? 'Fix errors first' : 'Publish to OpenClaw'}
                 </button>
               </div>
             </div>

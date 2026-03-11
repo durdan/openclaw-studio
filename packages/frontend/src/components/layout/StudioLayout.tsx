@@ -8,16 +8,34 @@ import { ToastProvider, useToast } from '@/components/common/Toast';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { useCanvasStore } from '@/store/canvas.store';
 import { useDesignStore } from '@/store/design.store';
+import { useValidation } from '@/hooks/useValidation';
 
 function StudioLayoutInner() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
   const clearSelection = useCanvasStore((s) => s.clearSelection);
   const activeDesign = useDesignStore((s) => s.activeDesign);
-  const validateDesign = useDesignStore((s) => s.validateDesign);
   const { toast } = useToast();
 
+  // Auto-validate 2s after graph changes (silent — just updates node badges)
+  const { validationResult, isValidating, validate } = useValidation();
+
   const showProperties = selectedNodeId !== null;
+
+  // Manual validate with toast feedback
+  const handleValidate = useCallback(async () => {
+    await validate();
+    // Read latest result from store after validation
+    const result = useDesignStore.getState().validationResult;
+    if (!result) return;
+    if (result.valid && result.warnings.length === 0) {
+      toast('success', 'All validation checks passed');
+    } else if (result.valid && result.warnings.length > 0) {
+      toast('warning', `Valid with ${result.warnings.length} warning${result.warnings.length > 1 ? 's' : ''}`);
+    } else {
+      toast('error', `${result.errors.length} error${result.errors.length > 1 ? 's' : ''}, ${result.warnings.length} warning${result.warnings.length > 1 ? 's' : ''}`);
+    }
+  }, [validate, toast]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -60,13 +78,34 @@ function StudioLayoutInner() {
           {activeDesign?.graph && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full border border-studio-border bg-studio-surface/95 backdrop-blur-sm px-4 py-2 shadow-xl">
               <button
-                onClick={validateDesign}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-yellow-400 hover:bg-yellow-500/10 transition-colors"
+                onClick={handleValidate}
+                disabled={isValidating}
+                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-yellow-400 hover:bg-yellow-500/10 transition-colors disabled:opacity-50"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                {isValidating ? (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
                 Validate
+                {validationResult && !validationResult.valid && (
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold px-1">
+                    {validationResult.errors.length}
+                  </span>
+                )}
+                {validationResult?.valid && validationResult.warnings.length > 0 && (
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-yellow-500/20 text-yellow-400 text-[10px] font-bold px-1">
+                    {validationResult.warnings.length}
+                  </span>
+                )}
+                {validationResult?.valid && validationResult.warnings.length === 0 && (
+                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                )}
               </button>
               <div className="w-px h-4 bg-studio-border" />
               <button

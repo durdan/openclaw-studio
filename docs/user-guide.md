@@ -159,26 +159,62 @@ Each section maps to a real OpenClaw workspace file:
 
 ## Step 3: Validate
 
-Click the **Validate** button (floating bar on canvas, or icon in chat header).
+Validation runs at **three points** in the workflow:
 
-The Studio runs **14 validation rules**:
+### Automatic Validation (After AI Changes)
+Every time the AI generates or modifies agents on the canvas, validation runs automatically after a 2-second delay. You'll see validation dots appear on each node:
 
-| Rule | What it checks |
-|------|---------------|
-| Agent has name | Every agent needs a name |
-| Agent has role | Every agent needs a role |
-| Agent has goal | Every agent needs a goal/description |
-| Skill has purpose | Skills must describe their purpose |
-| Tool has binding | Tools need a binding name |
-| Graph has agent | At least one agent required |
+| Dot Color | Meaning |
+|-----------|---------|
+| Green | All checks passed |
+| Yellow | Has warnings (non-blocking) |
+| Red | Has errors (blocks publishing) |
+| Gray | Not yet validated / incomplete |
 
-Errors block publishing. Warnings are informational.
+### Manual Validation (Validate Button)
+Click the **Validate** button in the floating bar at the bottom of the canvas. A toast notification shows the result:
+- **Green toast**: "All validation checks passed"
+- **Yellow toast**: "Valid with N warning(s)"
+- **Red toast**: "N error(s), N warning(s)"
+
+The Validate button also shows a live badge:
+- Red count badge = number of errors
+- Yellow count badge = number of warnings
+- Green dot = all clear
+
+### Pre-Publish Validation (Export Dialog)
+When you open the Publish dialog, validation runs automatically. If there are errors:
+- All errors and warnings are listed inline in the dialog
+- **Generate Preview** and **Publish to OpenClaw** buttons are blocked
+- You must fix errors before publishing (warnings are allowed)
+
+### Validation Rules (14 Total)
+
+| Rule | Severity | What it checks |
+|------|----------|---------------|
+| Agent has name | Error | Every agent needs a name |
+| Agent has role | Error | Every agent needs a role |
+| Agent has goal | Error | Every agent needs a goal/description |
+| Skill has purpose | Error | Skills must describe their purpose |
+| Skill has output | Warning | Skills should have output_schema |
+| Tool has binding | Error | Tools need a binding name |
+| Tool has type | Error | Tools need a tool_type |
+| Heartbeat has schedule | Error | Heartbeat needs a schedule |
+| Heartbeat has mode | Error | Heartbeat needs a mode |
+| Approval has rationale | Warning | Approvals should explain why |
+| Graph has agent | Error | At least one agent required |
+| No orphan agents | Warning | Agents should have connections |
+| No disconnected tools | Warning | Tools should connect to agent/skill |
+| Reused asset ref | Error | Reuse mode 'existing' needs a reference |
 
 ---
 
 ## Step 4: Publish to OpenClaw
 
 Click the **Publish** button (floating bar on canvas, or upload icon in chat header).
+
+### Validation Gate
+The Publish dialog automatically validates your design on open. If errors exist, they are shown inline and the Publish/Preview buttons are disabled until you fix them.
 
 ### Preview Workspace Files
 
