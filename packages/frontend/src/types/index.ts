@@ -1,0 +1,35 @@
+// Re-export shared types for convenience
+export type {
+  StudioGraph,
+  StudioNode,
+  StudioEdge,
+  GraphMetadata,
+  NodeConfig,
+  AgentNodeConfig,
+  SkillNodeConfig,
+  ToolNodeConfig,
+  TriggerNodeConfig,
+  ConditionNodeConfig,
+  ApprovalNodeConfig,
+  OutputNodeConfig,
+  WorkspaceNodeConfig,
+  HeartbeatNodeConfig,
+  StudioDesign,
+  StudioDesignVersion,
+  StudioTemplate,
+  AssetCatalogEntry,
+  ExportTarget,
+  PublishRun,
+  PlannerInput,
+  PlannerOutput,
+  ValidationResult,
+  ValidationIssue,
+  ExportBundle,
+} from '@openclaw-studio/shared';
+
+export {
+  NodeType,
+  EdgeRelationType,
+  ValidationState,
+  DesignStatus,
+} from '@openclaw-studio/shared';

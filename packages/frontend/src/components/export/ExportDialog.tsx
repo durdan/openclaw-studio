@@ -1,0 +1,269 @@
+'use client';
+
+import { useState } from 'react';
+import { Modal } from '@/components/common/Modal';
+import { useToast } from '@/components/common/Toast';
+import { api } from '@/lib/api';
+import { useDesignStore } from '@/store/design.store';
+import type { PublishResult } from '@openclaw-studio/shared';
+
+interface ExportDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+interface WorkspacePreview {
+  files: Record<string, string>;
+  openclaw_json: Record<string, unknown>;
+  agent_count: number;
+  file_count: number;
+}
+
+type PublishMode = 'preview' | 'filesystem' | 'download';
+
+export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
+  const activeDesign = useDesignStore((s) => s.activeDesign);
+  const { toast } = useToast();
+
+  const [mode, setMode] = useState<PublishMode>('preview');
+  const [preview, setPreview] = useState<WorkspacePreview | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
+  const [outputDir, setOutputDir] = useState('~/.openclaw');
+
+  const getRequestBody = () => {
+    if (!activeDesign) return null;
+    return {
+      design_id: activeDesign.id,
+      graph: activeDesign.graph,
+      name: activeDesign.name,
+      description: activeDesign.description,
+    };
+  };
+
+  const handlePreview = async () => {
+    const body = getRequestBody();
+    if (!body) return;
+
+    setIsLoading(true);
+    setPublishResult(null);
+    try {
+      const data = await api.post<WorkspacePreview>('/publish/preview', body);
+      setPreview(data);
+      setMode('preview');
+      // Auto-select first file
+      const firstFile = Object.keys(data.files)[0];
+      if (firstFile) setSelectedFile(firstFile);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Failed to generate preview');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePublishToFilesystem = async () => {
+    const body = getRequestBody();
+    if (!body) return;
+
+    setIsLoading(true);
+    setPublishResult(null);
+    try {
+      const result = await api.post<PublishResult>('/publish', {
+        ...body,
+        target_type: 'filesystem',
+        config: { output_dir: outputDir || '~/.openclaw' },
+      });
+      setPublishResult(result);
+      toast(result.success ? 'success' : 'error', result.message);
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Publish failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownloadFiles = () => {
+    if (!preview) return;
+
+    // Download each file as a text blob
+    for (const [filePath, content] of Object.entries(preview.files)) {
+      const blob = new Blob([content], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filePath.replace(/\//g, '_');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    toast('success', `Downloaded ${Object.keys(preview.files).length} files`);
+  };
+
+  // Group files by workspace directory
+  const groupedFiles = preview
+    ? Object.keys(preview.files).reduce(
+        (acc, path) => {
+          const dir = path.split('/').slice(0, -1).join('/') || '.';
+          if (!acc[dir]) acc[dir] = [];
+          acc[dir].push(path);
+          return acc;
+        },
+        {} as Record<string, string[]>,
+      )
+    : {};
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Publish to OpenClaw" maxWidth="max-w-3xl">
+      <div className="space-y-4">
+        {/* Step 1: Preview */}
+        {!preview && (
+          <div className="text-center py-8">
+            <svg className="mx-auto h-12 w-12 text-studio-accent/30 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            <p className="text-sm text-studio-text mb-1">Generate OpenClaw workspace files</p>
+            <p className="text-xs text-studio-text-muted mb-4">
+              Preview the files that will be written to <code className="text-studio-accent">~/.openclaw/</code>
+            </p>
+            <button
+              onClick={handlePreview}
+              disabled={isLoading || !activeDesign?.graph}
+              className="rounded-lg bg-studio-accent px-5 py-2 text-sm font-medium text-white hover:bg-studio-accent-hover disabled:opacity-50 transition-colors"
+            >
+              {isLoading ? 'Generating...' : 'Generate Preview'}
+            </button>
+          </div>
+        )}
+
+        {/* Step 2: File preview */}
+        {preview && (
+          <>
+            {/* Stats bar */}
+            <div className="flex items-center gap-4 rounded-lg bg-studio-bg/50 border border-studio-border px-3 py-2">
+              <div className="flex items-center gap-1.5">
+                <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span className="text-xs text-studio-text">{preview.agent_count} agent{preview.agent_count !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                <span className="text-xs text-studio-text">{preview.file_count} files</span>
+              </div>
+              <div className="flex-1" />
+              <button
+                onClick={() => { setPreview(null); setPublishResult(null); setSelectedFile(null); }}
+                className="text-[10px] text-studio-text-muted hover:text-studio-text"
+              >
+                Regenerate
+              </button>
+            </div>
+
+            {/* File browser */}
+            <div className="flex gap-3 h-72 rounded-lg border border-studio-border overflow-hidden">
+              {/* File tree */}
+              <div className="w-48 flex-shrink-0 bg-studio-bg/30 border-r border-studio-border overflow-y-auto">
+                {Object.entries(groupedFiles).map(([dir, files]) => (
+                  <div key={dir}>
+                    <div className="px-2 py-1 text-[10px] font-semibold text-studio-accent/70 uppercase tracking-wider bg-studio-bg/50">
+                      {dir === '.' ? 'root' : dir.replace('workspace', 'ws')}/
+                    </div>
+                    {files.map((filePath) => {
+                      const fileName = filePath.split('/').pop() || filePath;
+                      return (
+                        <button
+                          key={filePath}
+                          onClick={() => setSelectedFile(filePath)}
+                          className={`w-full text-left px-3 py-1 text-[11px] font-mono truncate transition-colors ${
+                            selectedFile === filePath
+                              ? 'bg-studio-accent/15 text-studio-accent'
+                              : 'text-studio-text-muted hover:text-studio-text hover:bg-studio-bg/50'
+                          }`}
+                        >
+                          {fileName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+
+              {/* File content */}
+              <div className="flex-1 overflow-auto p-3">
+                {selectedFile ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-mono text-studio-accent">{selectedFile}</span>
+                    </div>
+                    <pre className="text-[11px] text-studio-text font-mono whitespace-pre-wrap leading-relaxed">
+                      {preview.files[selectedFile]}
+                    </pre>
+                  </div>
+                ) : (
+                  <p className="text-xs text-studio-text-muted">Select a file to preview</p>
+                )}
+              </div>
+            </div>
+
+            {/* Publish result */}
+            {publishResult && (
+              <div
+                className={`rounded-lg border p-3 text-xs ${
+                  publishResult.success
+                    ? 'border-green-500/30 bg-green-500/5 text-green-400'
+                    : 'border-red-500/30 bg-red-500/5 text-red-400'
+                }`}
+              >
+                <p className="font-medium">{publishResult.success ? 'Published successfully!' : 'Publish failed'}</p>
+                <p className="mt-0.5 text-[10px] opacity-80">{publishResult.message}</p>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-between border-t border-studio-border pt-3">
+              <button
+                onClick={handleDownloadFiles}
+                className="flex items-center gap-1.5 rounded-lg border border-studio-border px-3 py-2 text-xs text-studio-text hover:border-studio-accent transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download Files
+              </button>
+
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 rounded border border-studio-border bg-studio-bg">
+                  <input
+                    type="text"
+                    value={outputDir}
+                    onChange={(e) => setOutputDir(e.target.value)}
+                    className="w-36 bg-transparent px-2 py-1.5 text-[11px] font-mono text-studio-text focus:outline-none"
+                    placeholder="~/.openclaw"
+                  />
+                </div>
+                <button
+                  onClick={handlePublishToFilesystem}
+                  disabled={isLoading}
+                  className="flex items-center gap-1.5 rounded-lg bg-studio-accent px-4 py-2 text-xs font-medium text-white hover:bg-studio-accent-hover disabled:opacity-50 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  {isLoading ? 'Publishing...' : 'Publish to OpenClaw'}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-studio-text-muted/50 text-center">
+              After publishing, run <code className="text-studio-accent/60">openclaw restart</code> to pick up changes
+            </p>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}

@@ -1,0 +1,191 @@
+import { Router, Request, Response } from 'express';
+import { filesystemAdapter } from '../adapters/filesystem.adapter';
+import { openclawBundleAdapter } from '../adapters/openclaw-bundle.adapter';
+import { gitAdapter } from '../adapters/git.adapter';
+import { exportService } from '../services/export.service';
+import { designService } from '../services/design.service';
+import { getDb } from '../db';
+import { v4 as uuidv4 } from 'uuid';
+import type { IExportAdapter, ExportTarget, StudioDesign } from '@openclaw-studio/shared';
+import { DesignStatus } from '@openclaw-studio/shared';
+
+const adapters: Record<string, IExportAdapter> = {
+  filesystem: filesystemAdapter,
+  'openclaw-bundle': openclawBundleAdapter,
+  git: gitAdapter,
+};
+
+interface ExportTargetRow {
+  id: string;
+  name: string;
+  target_type: string;
+  config_json: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function parseTargetRow(row: ExportTargetRow): ExportTarget {
+  return {
+    id: row.id,
+    name: row.name,
+    target_type: row.target_type,
+    config_json: row.config_json ? JSON.parse(row.config_json) : undefined,
+    is_active: row.is_active === 1,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function seedDefaultTargets(): void {
+  const db = getDb();
+  const count = db.prepare('SELECT COUNT(*) as cnt FROM studio_export_targets').get() as { cnt: number };
+  if (count.cnt > 0) return;
+
+  const now = new Date().toISOString();
+  const insert = db.prepare(`
+    INSERT INTO studio_export_targets (id, name, target_type, config_json, is_active, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  insert.run(uuidv4(), 'Filesystem', 'filesystem', JSON.stringify({ output_dir: '' }), 1, now, now);
+  insert.run(uuidv4(), 'OpenClaw Bundle', 'openclaw-bundle', JSON.stringify({}), 1, now, now);
+  insert.run(uuidv4(), 'Git Repository', 'git', JSON.stringify({ repo_url: '', branch: 'main' }), 0, now, now);
+
+  console.log('Seeded 3 default export targets.');
+}
+
+export const publishRouter = Router();
+
+// POST /api/publish - Publish a design via an adapter
+// Accepts either { design_id } or { graph, name, description } for unsaved designs
+publishRouter.post('/', async (req: Request, res: Response) => {
+  try {
+    const { design_id, graph, name, description, target_type, config } = req.body;
+
+    if (!target_type) {
+      res.status(400).json({ error: { message: 'target_type is required' } });
+      return;
+    }
+
+    const adapter = adapters[target_type];
+    if (!adapter) {
+      res.status(400).json({ error: { message: `Unknown target_type: ${target_type}. Available: ${Object.keys(adapters).join(', ')}` } });
+      return;
+    }
+
+    // Build a StudioDesign — either from DB or from the graph passed directly
+    let design: StudioDesign | null = null;
+
+    if (design_id) {
+      design = await designService.getById(design_id);
+    }
+
+    // If no design found in DB (or no design_id), use the graph from the request body
+    if (!design && graph) {
+      design = {
+        id: design_id || `publish-${Date.now()}`,
+        name: name || 'Unsaved Design',
+        description: description || '',
+        status: DesignStatus.Draft,
+        use_case_prompt: '',
+        graph,
+        created_by: 'user',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    if (!design) {
+      res.status(400).json({ error: { message: 'Either design_id (for saved designs) or graph (for unsaved designs) is required' } });
+      return;
+    }
+
+    const bundle = await exportService.generateBundle(design);
+
+    const adapterConfig = {
+      target_type,
+      config: config || {},
+    };
+
+    // Record publish run
+    const db = getDb();
+    const runId = uuidv4();
+    const now = new Date().toISOString();
+
+    const targetRow = db.prepare('SELECT id FROM studio_export_targets WHERE target_type = ?').get(target_type) as { id: string } | undefined;
+    const exportTargetId = targetRow?.id || 'unknown';
+
+    db.prepare(`
+      INSERT INTO studio_publish_runs (id, design_id, export_target_id, status, request_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(runId, design.id, exportTargetId, 'running', JSON.stringify({ target_type, config }), now, now);
+
+    const result = await adapter.publish(bundle, adapterConfig);
+
+    db.prepare(`
+      UPDATE studio_publish_runs SET status = ?, response_json = ?, updated_at = ? WHERE id = ?
+    `).run(result.success ? 'success' : 'failed', JSON.stringify(result), new Date().toISOString(), runId);
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// POST /api/publish/preview - Preview workspace files without writing to disk
+publishRouter.post('/preview', async (req: Request, res: Response) => {
+  try {
+    const { design_id, graph, name, description } = req.body;
+
+    let design: StudioDesign | null = null;
+
+    if (design_id) {
+      design = await designService.getById(design_id);
+    }
+
+    if (!design && graph) {
+      design = {
+        id: design_id || `preview-${Date.now()}`,
+        name: name || 'Unsaved Design',
+        description: description || '',
+        status: DesignStatus.Draft,
+        use_case_prompt: '',
+        graph,
+        created_by: 'user',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    if (!design) {
+      res.status(400).json({ error: { message: 'Either design_id or graph is required' } });
+      return;
+    }
+
+    const bundle = await exportService.generateBundle(design);
+    const workspaceBundle = openclawBundleAdapter.translate(bundle, { target_type: 'openclaw-bundle', config: {} });
+
+    res.json({
+      files: workspaceBundle.files,
+      openclaw_json: workspaceBundle.openclaw_json,
+      agent_count: workspaceBundle.openclaw_json.agents.list.length,
+      file_count: Object.keys(workspaceBundle.files).length,
+    });
+  } catch (err) {
+    console.error('Preview error:', err);
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// GET /api/publish/targets - List available export targets
+publishRouter.get('/targets', (_req: Request, res: Response) => {
+  try {
+    seedDefaultTargets();
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM studio_export_targets ORDER BY name ASC').all() as ExportTargetRow[];
+    res.json(rows.map(parseTargetRow));
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});

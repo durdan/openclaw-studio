@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --studio-bg: #0f1117;
+  --studio-surface: #1a1d27;
+  --studio-border: #2a2d3a;
+  --studio-accent: #6366f1;
+  --studio-text: #e2e8f0;
+  --studio-text-muted: #94a3b8;
+}
+
+body {
+  color: var(--studio-text);
+  background: var(--studio-bg);
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* React Flow overrides */
+.react-flow__node {
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.react-flow__edge-path {
+  stroke: var(--studio-border);
+  stroke-width: 2;
+}
+
+.react-flow__background {
+  background: var(--studio-bg);
+}

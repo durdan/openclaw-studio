@@ -1,10 +1,38 @@
-# Auto Claude data directory
-.auto-claude/
+# Dependencies
+node_modules/
 
-# Auto Claude generated files
+# Build outputs
+dist/
+.next/
+*.tsbuildinfo
+
+# Data
+data/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Auto Claude
+.auto-claude/
 .auto-claude-security.json
 .auto-claude-status
 .claude_settings.json
+.claude/
 .worktrees/
 .security-key
 logs/security/
+
+# Lock files (optional - remove if you want to commit)
+# package-lock.json
