@@ -1,47 +1,37 @@
 # OpenClaw Studio
 
-A standalone design-time visual designer for OpenClaw-native agent systems. Build multi-agent architectures visually, configure agents using the real SOUL.md specification, and publish workspace files ready for `openclaw gateway start`.
+A visual designer for OpenClaw AI agent systems. Describe your use case in plain English, and the Studio generates fully configured agents ready to publish to OpenClaw.
 
-**This is a design tool, not a runtime.** It generates the workspace files that OpenClaw reads at startup.
-
-## What It Does
+**Design-time only** — generates workspace files that OpenClaw reads at startup.
 
 ```
 ┌─────────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│   Visual Designer   │────▶│  Workspace Files  │────▶│  OpenClaw Gateway   │
-│   (this app)        │     │  ~/.openclaw/     │     │  localhost:18789    │
-│                     │     │  workspace/       │     │                     │
-│  - Drag agent nodes │     │  - AGENTS.md      │     │  Reads workspace    │
-│  - Configure SOUL   │     │  - agents/*/      │     │  files as system    │
-│  - Add skills/tools │     │    SOUL.md        │     │  prompt for each    │
-│  - Validate graph   │     │  - skills/*/      │     │  agent              │
-│  - Publish          │     │    SKILL.md       │     │                     │
-└─────────────────────┘     │  - HEARTBEAT.md   │     └─────────────────────┘
-                            │  - gateway.toml   │
-                            └──────────────────┘
+│   OpenClaw Studio   │────▶│  Workspace Files  │────▶│  OpenClaw Gateway   │
+│                     │     │  ~/.openclaw/     │     │                     │
+│  AI Chat ─▶ Canvas  │     │  workspace/       │     │  Reads files as     │
+│  ─▶ Properties      │     │  - SOUL.md        │     │  system prompt for  │
+│  ─▶ Publish         │     │  - AGENTS.md      │     │  each agent         │
+│                     │     │  - skills/        │     │                     │
+│                     │     │  openclaw.json    │     │  openclaw restart   │
+└─────────────────────┘     └──────────────────┘     └─────────────────────┘
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
-- npm 9+
+- Node.js 18+ and npm 9+
+- An [OpenRouter](https://openrouter.ai/) API key
 
 ### Install and Run
 
 ```bash
-# Install dependencies
+git clone https://github.com/durdan/openclaw-studio.git
+cd openclaw-studio
 npm install
-
-# Terminal 1: Start backend (port 4000)
-npm run dev:backend
-
-# Terminal 2: Start frontend (port 3000)
-cd packages/frontend && npx next dev
 ```
 
-Backend requires a `.env` file at `packages/backend/.env`:
+Create `packages/backend/.env`:
 
 ```env
 OPENROUTER_API_KEY=your-key-here
@@ -49,194 +39,140 @@ OPENROUTER_MODEL=google/gemini-2.5-flash
 PORT=4000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Start in two terminals:
+
+```bash
+# Terminal 1: Backend (port 4000)
+npm run dev:backend
+
+# Terminal 2: Frontend (port 3000)
+cd packages/frontend && npx next dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Studio Layout
+
+Three-panel layout inspired by CrewAI Studio:
+
+```
+┌──────────────┬──────────────────────────┬───────────────┐
+│              │                          │               │
+│   AI Chat    │        Canvas            │  Properties   │
+│   (Left)     │       (Center)           │   (Right)     │
+│              │                          │               │
+│  - Describe  │  - Agent nodes           │  - AGENTS.md  │
+│  - Refine    │  - Visual layout         │  - SOUL.md    │
+│  - Iterate   │  - Validate / Publish    │  - Model      │
+│              │                          │  - Tools      │
+│              │                          │  - Bindings   │
+└──────────────┴──────────────────────────┴───────────────┘
+```
+
+| Panel | Purpose |
+|-------|---------|
+| **Chat** (left, 400px) | AI-powered builder. Describe your use case, refine agents. Always visible. |
+| **Canvas** (center, flex) | Visual layout of your agent team. Floating Validate + Publish bar. |
+| **Properties** (right, 340px) | Edit agent config. Appears when you click a node. |
 
 ## How It Works
 
-### 1. Design
+### 1. Design with AI Chat
 
-Type a use case prompt (e.g., "Build a content marketing team with SEO and social media"). The AI planner generates 3-6 specialized agents with full OpenClaw configuration, laid out on a visual canvas.
+Type a use case — the AI generates 3-6 specialized agents with full OpenClaw configuration:
 
-Each agent node on the canvas shows its model and tools inline. Click any node to edit its full configuration in the properties panel.
+> "Build a customer support team with ticket triage and escalation"
+
+Refine by continuing the conversation:
+
+> "Add a knowledge base agent" · "Change Aura's model to MiniMax M2.1" · "Give Echo a firecrawl-cli tool"
 
 ### 2. Configure
 
-The properties panel matches the real OpenClaw SOUL.md specification:
+Click any agent on the canvas to open the properties panel:
 
-- **Core Identity** - Role, personality, communication style
-- **Responsibilities** - What this agent is responsible for
-- **Behavioral Guidelines** - Do rules / Don't rules
-- **Handoffs** - @mention patterns for agent-to-agent delegation
-- **Model Settings** - Model, temperature, timeout, max tokens
-- **Tools & Skills** - What this agent can use
-- **SOUL.md Preview** - Live markdown preview of the generated file
+- **AGENTS.md** — Name, role, goal, capabilities, rules
+- **SOUL.md** — Informal lowercase personality prompt
+- **Channel Binding** — Telegram, WhatsApp, Discord, Slack, WebSocket
+- **Model** — Primary + fallback model selection
+- **Tools & Skills** — Tool bindings and skill references
+- **Handoffs** — `@agent-name` delegation patterns
+- **LLM Settings** — Temperature, max tokens, timeout
 
 ### 3. Validate
 
-14 validation rules check the graph before export:
-- Agents must have name, role, and goal
-- Skills must have a purpose
-- Tools must have a binding name and type
-- No orphan agents or disconnected tools
-- Reused assets must reference existing assets
-- Graph must contain at least one agent
+14 rules check your design: agents need names/roles/goals, skills need purposes, tools need bindings, graph needs at least one agent.
 
 ### 4. Publish
 
-Three export targets write workspace files that OpenClaw reads directly:
+1. **Generate Preview** — browse all workspace files before publishing
+2. **Publish to OpenClaw** — writes files to `~/.openclaw/` (configurable)
+3. **Download Files** — download workspace files for manual deployment
+4. Run `openclaw restart` to pick up changes
 
-| Target | What It Does |
-|--------|-------------|
-| **OpenClaw Bundle** | Returns workspace files as JSON (preview/download) |
-| **Filesystem** | Writes files directly to `~/.openclaw/` (workspace dirs + openclaw.json) |
-| **Git** | Commits workspace files to a Git repo |
+## Key Concept: Agents Are Independent
 
-## Generated Workspace Structure
+OpenClaw agents don't form a pipeline. Each agent is a **fully isolated brain** with its own workspace directory. They coordinate via:
 
-When you publish, the Studio generates files matching the real OpenClaw multi-agent layout. Each agent gets its own workspace directory, with a central `openclaw.json` for configuration:
+- **Channel bindings** in `openclaw.json` — route messages to specific agents
+- **Handoffs** via `@agent-name` mentions in AGENTS.md
+- **No edges needed** on the canvas — agents sit independently
+
+## Generated Files
 
 ```
 ~/.openclaw/
-├── openclaw.json                          # Central config (agents, models, bindings)
-├── workspace/                             # First agent (default)
-│   ├── SOUL.md                            # Persona, tone, behavioral boundaries
-│   ├── AGENTS.md                          # Operating instructions & workflows
-│   ├── IDENTITY.md                        # Agent name & emoji
-│   ├── TOOLS.md                           # Tool notes & conventions
-│   ├── USER.md                            # Owner info template
-│   ├── MEMORY.md                          # Long-term memory
-│   ├── HEARTBEAT.md                       # Heartbeat checklist (if configured)
+├── openclaw.json              # Central config (agents, models, bindings)
+├── workspace/                 # First agent (default)
+│   ├── SOUL.md               # Lowercase personality prompt
+│   ├── AGENTS.md             # Structured operating instructions
+│   ├── IDENTITY.md           # Agent name & role
+│   ├── TOOLS.md              # Tool bindings
+│   ├── USER.md               # Owner info
+│   ├── MEMORY.md             # Long-term memory
 │   └── skills/
 │       └── keyword-research/
-│           └── SKILL.md                   # YAML frontmatter + prompt
-├── workspace-seo-specialist/              # Second agent
+│           └── SKILL.md      # YAML frontmatter + prompt
+├── workspace-echo/            # Second agent
 │   ├── SOUL.md
 │   ├── AGENTS.md
-│   ├── IDENTITY.md
-│   ├── TOOLS.md
-│   ├── USER.md
-│   ├── MEMORY.md
-│   └── skills/
-└── workspace-social-media-manager/        # Third agent
-    ├── SOUL.md
-    └── ...
+│   └── ...
+└── workspace-sentinel/        # Third agent
 ```
 
-### openclaw.json (Central Config)
+### File Formats
 
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": { "primary": "claude-sonnet-4-20250514" }
-    },
-    "list": [
-      {
-        "id": "content-strategist",
-        "default": true,
-        "name": "Content Strategist",
-        "workspace": "~/.openclaw/workspace"
-      },
-      {
-        "id": "seo-specialist",
-        "name": "SEO Specialist",
-        "workspace": "~/.openclaw/workspace-seo-specialist"
-      }
-    ]
-  },
-  "bindings": [
-    { "agentId": "content-strategist", "match": { "channel": "telegram" } }
-  ]
-}
-```
-
-### SOUL.md (Informal Personality Prompt — No Headers)
-
-SOUL.md is a **raw personality prompt** written in lowercase. This is the official OpenClaw convention — it signals "who I am", not structured config.
-
-```
-you are analytical, data-driven, and creative. you communicate in clear,
-structured, actionable language. you always base decisions on data and
-analytics. you always align content with business objectives. you never
-publish without seo review. you never ignore audience engagement metrics.
-```
-
-### AGENTS.md (Structured Operating Instructions)
-
-AGENTS.md is the formal "user manual" with markdown headers — role, mission, capabilities, rules.
-
-```markdown
-# Content Strategist
-
-## Role
-You are Content Strategist, a senior content strategy lead.
-
-## Mission
-Plan and execute content strategy that drives organic traffic growth.
-
-## Capabilities
-- Develop monthly content calendars
-- Coordinate with SEO and social teams
-- Track content performance metrics
-
-## Skills
-- keyword-research
-- content-calendar
-
-## Tools
-- firecrawl-cli
-
-## Rules
-- Always base decisions on data and analytics
-- Always align content with business objectives
-- Never publish without SEO review
-
-## Coordination
-- @seo-specialist for keyword research
-- @social-media-manager for distribution
-```
-
-### SKILL.md (Only File with YAML Frontmatter)
-
-```markdown
----
-name: keyword-research
-description: Research and analyze keywords for content optimization
-user-invocable: true
----
-
-# keyword-research
-
-Analyze search volume, competition, and relevance for target keywords.
-```
+| File | Format | Purpose |
+|------|--------|---------|
+| **SOUL.md** | Lowercase prose, no headers | Personality: "you are analytical, data-driven..." |
+| **AGENTS.md** | Structured markdown (`##` headers) | Role, Mission, Capabilities, Rules, Coordination |
+| **SKILL.md** | YAML frontmatter + markdown | Only file with frontmatter |
+| **openclaw.json** | JSON | Agent list, model defaults, channel bindings |
 
 ## Architecture
 
 ```
 openclaw-studio/
 ├── packages/
-│   ├── shared/          # TypeScript types shared between frontend & backend
-│   │   └── src/schemas/ # Node configs, graph, export bundle, validation types
-│   │
-│   ├── backend/         # Express API server (port 4000)
+│   ├── shared/          # TypeScript types (node configs, graph, export types)
+│   ├── backend/         # Express API (port 4000)
 │   │   └── src/
 │   │       ├── routes/      # REST endpoints
-│   │       ├── services/    # Business logic
-│   │       ├── adapters/    # Export adapters (filesystem, openclaw-bundle, git)
+│   │       ├── services/    # Business logic (planner, export, validation)
+│   │       ├── adapters/    # Export adapters (filesystem, openclaw-bundle)
 │   │       └── db/          # SQLite via better-sqlite3
-│   │
-│   └── frontend/        # Next.js 14 app (port 3000)
+│   └── frontend/        # Next.js 14 (port 3000)
 │       └── src/
 │           ├── components/
-│           │   ├── canvas/      # React Flow canvas + 10 node types
-│           │   ├── properties/  # Node config editors (SOUL.md-aligned)
-│           │   ├── chat/        # AI assistant panel
-│           │   ├── sidebar/     # Design list, templates, asset browser
-│           │   ├── output/      # Validation, export preview, reports
-│           │   └── prompt/      # Use case prompt input
+│           │   ├── canvas/      # React Flow canvas + node types
+│           │   ├── properties/  # Node config editors
+│           │   ├── chat/        # AI chat panel
+│           │   └── export/      # Publish dialog with file browser
 │           ├── store/           # Zustand stores (canvas, design, chat)
-│           ├── hooks/           # Custom React hooks
 │           └── lib/             # API client, constants
+├── docs/                # Documentation
+│   ├── architecture.md  # Architecture with Mermaid diagrams
+│   └── user-guide.md    # Step-by-step user guide
 └── data/                # SQLite database (auto-created)
 ```
 
@@ -249,84 +185,10 @@ openclaw-studio/
 | AI | OpenRouter API (configurable model) |
 | Monorepo | npm workspaces |
 
-### API Endpoints
+## Documentation
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /api/designs | List all designs |
-| POST | /api/designs | Create a design |
-| GET | /api/designs/:id | Get a design |
-| PUT | /api/designs/:id | Update a design |
-| DELETE | /api/designs/:id | Delete a design |
-| GET | /api/designs/:id/versions | List versions |
-| POST | /api/designs/:id/versions | Save a version |
-| POST | /api/planner/generate | Generate architecture from prompt |
-| POST | /api/planner/refine | Refine existing architecture |
-| POST | /api/validation/validate | Validate a graph |
-| GET | /api/validation/rules | List validation rules |
-| POST | /api/export/bundle | Generate export bundle |
-| POST | /api/publish | Publish via adapter |
-| GET | /api/publish/targets | List export targets |
-| POST | /api/chat/sessions | Create chat session |
-| POST | /api/chat/sessions/:id/messages | Send chat message |
-| GET | /api/health | Health check |
-
-### Node Types
-
-| Type | Purpose | Key Config Fields |
-|------|---------|-------------------|
-| Agent | AI agent with SOUL.md | role, personality, responsibilities, do/don't rules, handoffs, model |
-| Skill | Capability with SKILL.md frontmatter | name, purpose, prompt, input/output schema |
-| Tool | External tool binding | tool_type, binding_name, allowed_actions |
-| Trigger | Event/schedule/manual trigger | trigger_type, source, schedule |
-| Condition | Branching logic | expression_summary |
-| Approval | Human-in-the-loop gate | reviewer_type, rationale |
-| Output | Result destination | output_type, destination |
-| Workspace | Workspace metadata | notes, template_ref |
-| Heartbeat | Periodic check-in config | mode, schedule, purpose |
-| TemplateReference | Reference to a template | notes |
-
-## Publishing to OpenClaw
-
-OpenClaw has no deployment API. The workspace is just files on disk that the gateway reads at startup. The Studio generates `openclaw.json` + per-agent workspace directories.
-
-### Local Machine (Same Machine as Gateway)
-
-```bash
-# 1. Publish from Studio using the "Filesystem" target
-#    Default output_dir: ~/.openclaw/
-#    This writes openclaw.json + workspace/ + workspace-<agent>/ directories
-
-# 2. Restart the gateway to pick up changes
-openclaw restart
-
-# The gateway reads openclaw.json, finds each agent's workspace path,
-# loads SOUL.md + AGENTS.md + TOOLS.md as the system prompt,
-# and starts serving on port 18789.
-```
-
-### Remote Server
-
-Use the **Git** export target:
-
-1. Push workspace files to a Git repo
-2. On the server: `git pull` to `~/.openclaw/`, then `openclaw restart`
-3. Or set up a CI/CD pipeline that deploys on push
-
-### How OpenClaw Uses the Files
-
-When the gateway starts, for each agent in `openclaw.json`:
-
-1. Reads `SOUL.md` — injected as persona/boundaries in the system prompt
-2. Reads `AGENTS.md` — operating instructions, workflows, priorities
-3. Reads `TOOLS.md` — available tools and conventions
-4. Reads `IDENTITY.md` — agent name and emoji
-5. Reads `USER.md` — owner info and preferences
-6. Reads `HEARTBEAT.md` — periodic check-in checklist (if present)
-7. Reads `MEMORY.md` — curated long-term memory
-8. Loads skills from `skills/` directory (SKILL.md with YAML frontmatter)
-
-All workspace files are injected into "Project Context" each turn (per-file limit: 20,000 chars, total: 150,000 chars). Updating a SOUL.md is picked up on the next agent session.
+- **[Architecture Guide](docs/architecture.md)** — System overview, data flows, Mermaid diagrams, API reference, validation rules
+- **[User Guide](docs/user-guide.md)** — Step-by-step guide: design, configure, validate, publish
 
 ## Development
 
@@ -336,18 +198,14 @@ npx tsc --noEmit -p packages/shared/tsconfig.json
 npx tsc --noEmit -p packages/backend/tsconfig.json
 npx tsc --noEmit -p packages/frontend/tsconfig.json
 
-# Build all packages
+# Build
 npm run build
 
-# Format code
+# Format
 npm run format
 ```
 
-### Database
-
-SQLite database is auto-created at `data/openclaw-studio.db` on first backend start. Migrations run automatically. The database stores designs, versions, templates, assets, export targets, and publish run history.
-
-5 architecture templates are seeded on first run (coordinator, pipeline, peer-to-peer, hub-spoke, event-driven).
+Database auto-creates at `data/openclaw-studio.db` on first backend start. 5 architecture templates are seeded on first run.
 
 ## License
 

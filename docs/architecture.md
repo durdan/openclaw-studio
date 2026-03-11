@@ -1,0 +1,522 @@
+# OpenClaw Studio — Architecture
+
+## System Overview
+
+OpenClaw Studio is a **design-time visual designer** for OpenClaw multi-agent systems. It generates workspace files (`SOUL.md`, `AGENTS.md`, `openclaw.json`, etc.) that the OpenClaw gateway reads at startup. **It is not a runtime.**
+
+```mermaid
+graph LR
+    subgraph Studio ["OpenClaw Studio (Design Time)"]
+        UI[Visual Designer<br/>Next.js + React Flow]
+        API[Backend API<br/>Express + SQLite]
+        UI -->|REST API| API
+    end
+
+    subgraph Output ["Generated Workspace Files"]
+        OJ[openclaw.json]
+        WS1[workspace/<br/>SOUL.md, AGENTS.md, ...]
+        WS2[workspace-agent2/<br/>SOUL.md, AGENTS.md, ...]
+        SK[skills/<br/>SKILL.md]
+    end
+
+    subgraph Runtime ["OpenClaw Gateway (Runtime)"]
+        GW[Gateway Core<br/>Message Router]
+        AG1[Agent 1]
+        AG2[Agent 2]
+        GW --> AG1
+        GW --> AG2
+    end
+
+    API -->|Publish| Output
+    Output -->|openclaw restart| Runtime
+```
+
+---
+
+## High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend ["packages/frontend (Next.js 14, port 3000)"]
+        Chat[Chat Panel<br/>AI Builder]
+        Canvas[React Flow Canvas<br/>Agent Nodes]
+        Props[Properties Panel<br/>OpenClaw Config]
+        Export[Export Dialog<br/>File Preview + Publish]
+
+        Chat -->|workflow_action| Canvas
+        Canvas -->|node select| Props
+        Canvas -->|publish| Export
+    end
+
+    subgraph Stores ["Zustand Stores"]
+        DS[Design Store<br/>activeDesign, graph]
+        CS[Chat Store<br/>sessions, messages]
+        CAS[Canvas Store<br/>selection, node ops]
+    end
+
+    subgraph Backend ["packages/backend (Express, port 4000)"]
+        Routes[REST Routes]
+        Services[Services Layer]
+        Adapters[Export Adapters]
+        DB[(SQLite)]
+
+        Routes --> Services
+        Services --> DB
+        Services --> Adapters
+    end
+
+    subgraph Shared ["packages/shared"]
+        Types[TypeScript Types<br/>Graph, NodeConfig, ExportBundle]
+    end
+
+    Frontend --> Stores
+    Stores -->|HTTP| Routes
+    Frontend -.->|imports| Types
+    Backend -.->|imports| Types
+
+    subgraph External ["External"]
+        OR[OpenRouter API<br/>LLM Provider]
+    end
+
+    Services -->|chat, planner| OR
+```
+
+---
+
+## Data Flow
+
+### 1. AI Chat → Canvas Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ChatPanel
+    participant ChatStore
+    participant Backend as Chat Service
+    participant OpenRouter as OpenRouter API
+    participant DesignStore
+    participant Canvas
+
+    User->>ChatPanel: "Build a support team"
+    ChatPanel->>ChatStore: sendMessageStream()
+    ChatStore->>Backend: POST /api/chat/sessions/:id/stream
+    Backend->>Backend: Build messages + graph context
+    Backend->>OpenRouter: POST chat/completions (stream)
+    OpenRouter-->>Backend: SSE chunks
+    Backend-->>ChatStore: SSE: text deltas + workflow_action
+    ChatStore->>ChatStore: Parse workflow_action JSON
+    ChatStore->>ChatPanel: Display message
+    ChatPanel->>DesignStore: applyWorkflowAction()
+    DesignStore->>Canvas: Update graph (nodes + edges)
+    Canvas->>Canvas: Re-render agent cards
+```
+
+### 2. Publish Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ExportDialog
+    participant API as Backend API
+    participant ExportSvc as Export Service
+    participant Adapter as OpenClaw Bundle Adapter
+    participant FS as Filesystem
+
+    User->>ExportDialog: Click "Publish"
+    ExportDialog->>API: POST /api/publish/preview {graph}
+    API->>ExportSvc: generateBundle(design)
+    ExportSvc->>ExportSvc: Extract agents, skills, tools
+    ExportSvc->>ExportSvc: Validate graph (14 rules)
+    ExportSvc->>Adapter: translate(bundle)
+    Adapter->>Adapter: Generate SOUL.md, AGENTS.md, etc.
+    Adapter-->>ExportDialog: {files, openclaw_json}
+    ExportDialog->>ExportDialog: Show file browser preview
+
+    User->>ExportDialog: Click "Publish to OpenClaw"
+    ExportDialog->>API: POST /api/publish {graph, target: filesystem}
+    API->>FS: Write files to ~/.openclaw/
+    FS-->>ExportDialog: Success (N files written)
+    Note over User: Run: openclaw restart
+```
+
+---
+
+## Backend Architecture
+
+### Route → Service → Adapter Stack
+
+```mermaid
+graph LR
+    subgraph Routes
+        R1[/api/designs]
+        R2[/api/planner]
+        R3[/api/chat]
+        R4[/api/validation]
+        R5[/api/publish]
+        R6[/api/export]
+    end
+
+    subgraph Services
+        S1[Design Service]
+        S2[Planner Service]
+        S3[Chat Service]
+        S4[Validation Service]
+        S5[Export Service]
+    end
+
+    subgraph Adapters
+        A1[Filesystem Adapter]
+        A2[OpenClaw Bundle Adapter]
+        A3[Git Adapter]
+    end
+
+    R1 --> S1
+    R2 --> S2
+    R3 --> S3
+    R4 --> S4
+    R5 --> S5
+    R6 --> S5
+
+    S5 --> A1
+    S5 --> A2
+    S5 --> A3
+
+    A1 -->|delegates| A2
+    A3 -->|delegates| A1
+
+    S1 --> DB[(SQLite)]
+    S3 --> OR[OpenRouter API]
+    S2 --> OR
+```
+
+### API Endpoints
+
+| Method | Path | Service | Description |
+|--------|------|---------|-------------|
+| GET | `/api/designs` | Design | List all designs |
+| POST | `/api/designs` | Design | Create design |
+| GET | `/api/designs/:id` | Design | Get design |
+| PUT | `/api/designs/:id` | Design | Update design |
+| DELETE | `/api/designs/:id` | Design | Delete design |
+| GET | `/api/designs/:id/versions` | Design | List versions |
+| POST | `/api/designs/:id/versions` | Design | Save version snapshot |
+| POST | `/api/planner/generate` | Planner | Generate agents from prompt |
+| POST | `/api/planner/refine` | Planner | Refine existing plan |
+| POST | `/api/chat/sessions` | Chat | Create chat session |
+| POST | `/api/chat/sessions/:id/messages` | Chat | Send message (non-streaming) |
+| POST | `/api/chat/sessions/:id/stream` | Chat | Send message (SSE streaming) |
+| DELETE | `/api/chat/sessions/:id` | Chat | Delete session |
+| POST | `/api/validation/validate` | Validation | Validate graph (14 rules) |
+| GET | `/api/validation/rules` | Validation | List validation rules |
+| POST | `/api/export/bundle` | Export | Generate export bundle |
+| POST | `/api/publish` | Export + Adapter | Publish to target |
+| POST | `/api/publish/preview` | Export + Adapter | Preview workspace files |
+| GET | `/api/publish/targets` | Publish | List export targets |
+| GET | `/api/health` | — | Health check |
+
+---
+
+## Database Schema
+
+```mermaid
+erDiagram
+    studio_designs {
+        TEXT id PK
+        TEXT name
+        TEXT description
+        TEXT status "draft|reviewed|approved|exported"
+        TEXT use_case_prompt
+        TEXT planner_output_json
+        TEXT graph_json
+        TEXT export_bundle_json
+        TEXT created_by
+        TEXT created_at
+        TEXT updated_at
+    }
+
+    studio_design_versions {
+        TEXT id PK
+        TEXT design_id FK
+        INTEGER version_number
+        TEXT graph_json
+        TEXT planner_output_json
+        TEXT export_bundle_json
+        TEXT change_summary
+        TEXT created_at
+    }
+
+    studio_templates {
+        TEXT id PK
+        TEXT name
+        TEXT template_type
+        TEXT description
+        TEXT template_json
+        TEXT created_at
+        TEXT updated_at
+    }
+
+    studio_assets_catalog {
+        TEXT id PK
+        TEXT asset_type
+        TEXT source_type
+        TEXT source_ref
+        TEXT name
+        TEXT metadata_json
+        INTEGER reusable
+        TEXT created_at
+        TEXT updated_at
+    }
+
+    studio_export_targets {
+        TEXT id PK
+        TEXT name
+        TEXT target_type
+        TEXT config_json
+        INTEGER is_active
+        TEXT created_at
+        TEXT updated_at
+    }
+
+    studio_publish_runs {
+        TEXT id PK
+        TEXT design_id FK
+        TEXT export_target_id FK
+        TEXT status
+        TEXT request_json
+        TEXT response_json
+        TEXT created_at
+        TEXT updated_at
+    }
+
+    studio_designs ||--o{ studio_design_versions : "has versions"
+    studio_designs ||--o{ studio_publish_runs : "published via"
+    studio_export_targets ||--o{ studio_publish_runs : "target for"
+```
+
+---
+
+## Frontend Architecture
+
+### Component Tree
+
+```mermaid
+graph TB
+    App[StudioLayout]
+
+    App --> ChatPanel[Chat Panel<br/>Left, 400px, always visible]
+    App --> CanvasArea[Canvas Area<br/>Center, flex-1]
+    App --> PropsPanel[Properties Panel<br/>Right, 340px, on node select]
+
+    ChatPanel --> Branding[OpenClaw Branding + Actions]
+    ChatPanel --> DesignSummary[Design Summary Card]
+    ChatPanel --> Messages[Chat Messages]
+    ChatPanel --> Suggestions[Suggestion Cards]
+    ChatPanel --> ChatInput[Chat Input + Send]
+
+    CanvasArea --> ReactFlow[React Flow Canvas]
+    CanvasArea --> FloatingBar[Floating Action Bar<br/>Validate + Publish]
+    CanvasArea --> ExportDialog[Export Dialog<br/>File Preview + Publish]
+
+    ReactFlow --> AgentNode[Agent Node]
+    ReactFlow --> SkillNode[Skill Node]
+    ReactFlow --> ToolNode[Tool Node]
+    ReactFlow --> TriggerNode[Trigger Node]
+    ReactFlow --> OtherNodes[Condition, Approval,<br/>Output, Workspace,<br/>Heartbeat, TemplateRef]
+
+    PropsPanel --> AgentProps[Agent Properties<br/>AGENTS.md, SOUL.md, Model,<br/>Tools, Bindings, Handoffs,<br/>LLM Settings, Previews]
+    PropsPanel --> SkillProps[Skill Properties]
+    PropsPanel --> ToolProps[Tool Properties]
+    PropsPanel --> OtherProps[Other Properties]
+```
+
+### Zustand Store Architecture
+
+```mermaid
+graph TB
+    subgraph DesignStore ["Design Store"]
+        DS_State["designs[], activeDesign, plannerOutput,<br/>validationResult, isLoading, error"]
+        DS_Actions["loadDesigns(), createDesign(), saveDesign(),<br/>updateGraph(), generatePlan(), validateDesign()"]
+    end
+
+    subgraph ChatStore ["Chat Store"]
+        CS_State["sessionId, messages[], isStreaming, error"]
+        CS_Actions["createSession(), sendMessageStream(),<br/>clearSession(), clearError()"]
+    end
+
+    subgraph CanvasStore ["Canvas Store"]
+        CAS_State["selectedNodeId, selectedNodeType,<br/>selectedEdgeId, zoomLevel"]
+        CAS_Actions["selectNode(), clearSelection(),<br/>updateNodeConfig(), addNode(), removeNode()"]
+    end
+
+    ChatStore -->|"applyWorkflowAction()"| DesignStore
+    CanvasStore -->|"updateNodeConfig()"| DesignStore
+    DesignStore -->|"activeDesign.graph"| ReactFlow[React Flow Canvas]
+```
+
+---
+
+## Node Type System
+
+```mermaid
+graph TB
+    subgraph NodeTypes ["10 Node Types"]
+        Agent["Agent<br/>🟣 indigo<br/>SOUL.md + AGENTS.md"]
+        Skill["Skill<br/>🟢 emerald<br/>SKILL.md (YAML frontmatter)"]
+        Tool["Tool<br/>🟡 amber<br/>TOOLS.md binding"]
+        Trigger["Trigger<br/>🔴 rose<br/>event/schedule/manual"]
+        Condition["Condition<br/>🔵 cyan<br/>branching logic"]
+        Approval["Approval<br/>🟣 purple<br/>human-in-loop gate"]
+        Output["Output<br/>🟢 teal<br/>result destination"]
+        Workspace["Workspace<br/>🔵 blue<br/>metadata"]
+        Heartbeat["Heartbeat<br/>💗 pink<br/>periodic check-in"]
+        TemplateRef["Template Ref<br/>reference"]
+    end
+
+    subgraph EdgeTypes ["9 Edge Relations"]
+        E1[Invokes]
+        E2[Uses]
+        E3[Triggers]
+        E4[RoutesTo]
+        E5[DependsOn]
+        E6[Approves]
+        E7[WritesTo]
+        E8[ManagedBy]
+        E9[GroupedUnder]
+    end
+```
+
+---
+
+## OpenClaw Workspace File Generation
+
+```mermaid
+graph TB
+    subgraph Input ["Studio Graph"]
+        AgentNodes["Agent Nodes<br/>(AgentNodeConfig)"]
+        SkillNodes["Skill Nodes<br/>(SkillNodeConfig)"]
+    end
+
+    subgraph Adapter ["OpenClaw Bundle Adapter"]
+        GenSoul["generateSoulMd()<br/>Lowercase personality prose"]
+        GenAgents["generateAgentsMd()<br/>Structured ## Role, ## Mission, ## Rules"]
+        GenIdentity["generateIdentityMd()<br/>Name + Role"]
+        GenTools["generateToolsMd()<br/>Tool bindings"]
+        GenUser["generateUserMd()<br/>Owner template"]
+        GenMemory["generateMemoryMd()<br/>Long-term memory"]
+        GenHeartbeat["generateHeartbeatMd()<br/>Schedule + checklist"]
+        GenSkill["generateSkillMd()<br/>YAML frontmatter + markdown"]
+        GenConfig["generateOpenClawJson()<br/>agents list + bindings"]
+    end
+
+    subgraph Output ["~/.openclaw/"]
+        SOUL["workspace/SOUL.md"]
+        AGENTS["workspace/AGENTS.md"]
+        IDENTITY["workspace/IDENTITY.md"]
+        TOOLS["workspace/TOOLS.md"]
+        USER["workspace/USER.md"]
+        MEMORY["workspace/MEMORY.md"]
+        HEARTBEAT["workspace/HEARTBEAT.md"]
+        SKILLMD["workspace/skills/x/SKILL.md"]
+        JSON["openclaw.json"]
+    end
+
+    AgentNodes --> GenSoul --> SOUL
+    AgentNodes --> GenAgents --> AGENTS
+    AgentNodes --> GenIdentity --> IDENTITY
+    AgentNodes --> GenTools --> TOOLS
+    AgentNodes --> GenUser --> USER
+    AgentNodes --> GenMemory --> MEMORY
+    AgentNodes --> GenHeartbeat --> HEARTBEAT
+    SkillNodes --> GenSkill --> SKILLMD
+    AgentNodes --> GenConfig --> JSON
+```
+
+---
+
+## Validation Rules
+
+14 rules run before export:
+
+| # | Rule ID | Severity | Check |
+|---|---------|----------|-------|
+| 1 | `agent-has-name` | error | Agent must have a name |
+| 2 | `agent-has-goal` | error | Agent must have goal or description |
+| 3 | `agent-has-role` | error | Agent must have a role |
+| 4 | `skill-has-purpose` | error | Skill must have a purpose |
+| 5 | `skill-has-output` | warning | Skill should have output_schema |
+| 6 | `tool-has-binding` | error | Tool must have binding_name |
+| 7 | `tool-has-type` | error | Tool must have tool_type |
+| 8 | `heartbeat-has-schedule` | error | Heartbeat must have schedule |
+| 9 | `heartbeat-has-mode` | error | Heartbeat must have mode |
+| 10 | `approval-has-rationale` | warning | Approval should have rationale |
+| 11 | `graph-has-agent` | error | Graph must have at least 1 agent |
+| 12 | `no-orphan-agents` | warning | Agents should have connections |
+| 13 | `no-disconnected-tools` | warning | Tools should connect to agent/skill |
+| 14 | `reused-asset-ref-present` | error | Reuse mode 'existing' needs reference |
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| Frontend | Next.js 14 | App framework |
+| Canvas | React Flow v12 (@xyflow/react) | Visual node editor |
+| State | Zustand | State management |
+| Styling | Tailwind CSS | Utility-first CSS |
+| Backend | Express.js | REST API server |
+| Database | SQLite (better-sqlite3) | Persistent storage |
+| AI | OpenRouter API | LLM for chat + planner |
+| Types | TypeScript | Shared type system |
+| Monorepo | npm workspaces | Package management |
+
+---
+
+## Directory Structure
+
+```
+openclaw-studio/
+├── docs/                          # Documentation
+├── packages/
+│   ├── shared/                    # Shared TypeScript types
+│   │   └── src/
+│   │       ├── index.ts           # Barrel export
+│   │       └── schemas/           # Type definitions
+│   │           ├── graph.ts       # StudioGraph, StudioNode, enums
+│   │           ├── node-configs.ts # AgentNodeConfig, SkillNodeConfig, etc.
+│   │           ├── design.ts      # StudioDesign, ExportTarget
+│   │           ├── planner.ts     # PlannerInput/Output, suggestions
+│   │           ├── export-bundle.ts # AgentDefinition, ExportBundle
+│   │           ├── validation.ts  # ValidationResult, rules
+│   │           └── adapter.ts     # IExportAdapter, PublishResult
+│   │
+│   ├── backend/                   # Express API (port 4000)
+│   │   └── src/
+│   │       ├── index.ts           # Entry point, route mounting
+│   │       ├── config.ts          # Environment config
+│   │       ├── db/                # SQLite setup + migrations
+│   │       ├── routes/            # REST endpoints (8 routers)
+│   │       ├── services/          # Business logic (7 services)
+│   │       ├── adapters/          # Export adapters (4 adapters)
+│   │       └── middleware/        # Error handler
+│   │
+│   └── frontend/                  # Next.js 14 (port 3000)
+│       └── src/
+│           ├── app/               # Next.js app router
+│           ├── components/
+│           │   ├── layout/        # StudioLayout (3-panel)
+│           │   ├── canvas/        # React Flow canvas + 10 node types
+│           │   ├── chat/          # AI chat panel + input
+│           │   ├── properties/    # Node config editors (9 types)
+│           │   ├── export/        # Export dialog with file preview
+│           │   ├── common/        # Modal, Toast, Badge
+│           │   ├── sidebar/       # Design list, templates, assets
+│           │   ├── output/        # Validation, architecture reports
+│           │   ├── prompt/        # Use case prompt (legacy)
+│           │   └── versioning/    # Version history, diff
+│           ├── store/             # Zustand stores (3)
+│           ├── hooks/             # Custom React hooks
+│           └── lib/               # API client, constants
+│
+└── data/                          # SQLite database (auto-created)
+```
