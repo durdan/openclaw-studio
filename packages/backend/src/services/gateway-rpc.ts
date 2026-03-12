@@ -338,6 +338,11 @@ export async function gatewayListAgents(config: GatewayConfig): Promise<unknown>
   return gatewayCall('agents.list', {}, config);
 }
 
+export async function gatewayGetConfig(config: GatewayConfig): Promise<{ config: Record<string, unknown>; hash: string }> {
+  const result = await gatewayCall('config.get', {}, config) as { config: Record<string, unknown>; hash: string };
+  return result;
+}
+
 export async function gatewaySetFile(
   agentId: string,
   name: string,

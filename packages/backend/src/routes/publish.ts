@@ -5,7 +5,7 @@ import { gitAdapter } from '../adapters/git.adapter';
 import { gatewayAdapter } from '../adapters/gateway.adapter';
 import { exportService } from '../services/export.service';
 import { designService } from '../services/design.service';
-import { gatewayHealth, gatewayListAgents, detectAuthMode, type GatewayConfig, type AuthMode } from '../services/gateway-rpc';
+import { gatewayHealth, gatewayListAgents, gatewayGetConfig, detectAuthMode, type GatewayConfig, type AuthMode } from '../services/gateway-rpc';
 import { getDb } from '../db';
 import { v4 as uuidv4 } from 'uuid';
 import type { IExportAdapter, ExportTarget, StudioDesign } from '@openclaw-studio/shared';
@@ -250,6 +250,89 @@ publishRouter.post('/gateway/agents', async (req: Request, res: Response) => {
     };
     const agents = await gatewayListAgents(gwConfig);
     res.json({ agents });
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// POST /api/publish/gateway/status - Get gateway agents + config + bindings in one call
+publishRouter.post('/gateway/status', async (req: Request, res: Response) => {
+  try {
+    const { gateway_url, gateway_token, insecure_tls, auth_mode } = req.body;
+    if (!gateway_url) {
+      res.status(400).json({ error: { message: 'gateway_url is required' } });
+      return;
+    }
+    const gwConfig: GatewayConfig = {
+      url: gateway_url,
+      token: gateway_token,
+      insecureTls: insecure_tls ?? false,
+      authMode: (auth_mode as AuthMode) || 'auto',
+    };
+
+    // Fetch agents list and config in parallel
+    const [agents, configResult] = await Promise.all([
+      gatewayListAgents(gwConfig).catch(() => null),
+      gatewayGetConfig(gwConfig).catch(() => null),
+    ]);
+
+    const config = configResult?.config as Record<string, unknown> | null;
+    const agentsList = config?.agents as { list?: Array<{ id: string; name?: string; workspace?: string; default?: boolean }> } | undefined;
+    const bindings = config?.bindings as Array<{ agentId: string; match: Record<string, unknown> }> | undefined;
+
+    res.json({
+      agents: agentsList?.list || [],
+      bindings: bindings || [],
+      raw_agents_response: agents,
+    });
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// GET /api/publish/history - Get publish run history
+publishRouter.get('/history', (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT
+        pr.id,
+        pr.design_id,
+        pr.status,
+        pr.request_json,
+        pr.response_json,
+        pr.created_at,
+        pr.updated_at,
+        d.name as design_name,
+        et.target_type
+      FROM studio_publish_runs pr
+      LEFT JOIN studio_designs d ON d.id = pr.design_id
+      LEFT JOIN studio_export_targets et ON et.id = pr.export_target_id
+      ORDER BY pr.created_at DESC
+      LIMIT 50
+    `).all() as Array<{
+      id: string;
+      design_id: string;
+      status: string;
+      request_json: string | null;
+      response_json: string | null;
+      created_at: string;
+      updated_at: string;
+      design_name: string | null;
+      target_type: string | null;
+    }>;
+
+    res.json(rows.map((r) => ({
+      id: r.id,
+      design_id: r.design_id,
+      design_name: r.design_name,
+      target_type: r.target_type,
+      status: r.status,
+      request: r.request_json ? JSON.parse(r.request_json) : null,
+      response: r.response_json ? JSON.parse(r.response_json) : null,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    })));
   } catch (err) {
     res.status(500).json({ error: { message: (err as Error).message } });
   }
