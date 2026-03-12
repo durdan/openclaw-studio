@@ -87,6 +87,23 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
     insecure_tls: insecureTls,
   };
 
+  const [localConfigLoaded, setLocalConfigLoaded] = useState(false);
+
+  // Load local gateway config on first open
+  useEffect(() => {
+    if (isOpen && !localConfigLoaded) {
+      api.get<{ found: boolean; url: string; hasToken: boolean; token?: string }>('/publish/gateway/local-config')
+        .then((cfg) => {
+          if (cfg.found) {
+            setGatewayUrl(cfg.url);
+            if (cfg.token) setGatewayToken(cfg.token);
+          }
+          setLocalConfigLoaded(true);
+        })
+        .catch(() => setLocalConfigLoaded(true));
+    }
+  }, [isOpen, localConfigLoaded]);
+
   // Run validation when dialog opens
   useEffect(() => {
     if (isOpen && activeDesign?.graph) {
@@ -112,6 +129,7 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
       setGatewayStatus(null);
       setDuplicateAgents([]);
       setConfirmOverwrite(false);
+      setLocalConfigLoaded(false);
     }
   }, [isOpen, activeDesign?.graph, validateDesign, gatewayUrl]);
 
@@ -395,7 +413,11 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
 
               <div>
                 <label className="block text-[10px] font-medium text-studio-text-muted uppercase tracking-wider mb-1">
-                  Auth Token <span className="text-studio-text-muted/50">(optional)</span>
+                  Auth Token {gatewayToken && localConfigLoaded ? (
+                    <span className="text-green-400/70">(auto-loaded from openclaw.json)</span>
+                  ) : (
+                    <span className="text-studio-text-muted/50">(optional)</span>
+                  )}
                 </label>
                 <input
                   type="password"

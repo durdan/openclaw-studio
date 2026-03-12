@@ -6,6 +6,39 @@ import { gatewayAdapter } from '../adapters/gateway.adapter';
 import { exportService } from '../services/export.service';
 import { designService } from '../services/design.service';
 import { gatewayHealth, gatewayListAgents, gatewayGetConfig, detectAuthMode, type GatewayConfig, type AuthMode } from '../services/gateway-rpc';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+
+/** Read the gateway auth token from ~/.openclaw/openclaw.json if available */
+function readLocalGatewayToken(): string | undefined {
+  try {
+    const raw = JSON.parse(fs.readFileSync(OPENCLAW_CONFIG_PATH, 'utf-8'));
+    return raw?.gateway?.auth?.token as string | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Read the full local gateway config (url + token) */
+function readLocalGatewayConfig(): { url: string; token?: string; port?: number } | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(OPENCLAW_CONFIG_PATH, 'utf-8'));
+    const gw = raw?.gateway;
+    if (!gw) return null;
+    const port = gw.port || 18789;
+    const bind = gw.bind === 'loopback' ? 'localhost' : (gw.bind || 'localhost');
+    return {
+      url: `ws://${bind}:${port}`,
+      token: gw.auth?.token,
+      port,
+    };
+  } catch {
+    return null;
+  }
+}
 import { getDb } from '../db';
 import { v4 as uuidv4 } from 'uuid';
 import type { IExportAdapter, ExportTarget, StudioDesign } from '@openclaw-studio/shared';
@@ -195,6 +228,23 @@ publishRouter.get('/targets', (_req: Request, res: Response) => {
     res.json(rows.map(parseTargetRow));
   } catch (err) {
     res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// GET /api/publish/gateway/local-config - Read local gateway config from ~/.openclaw/openclaw.json
+publishRouter.get('/gateway/local-config', (_req: Request, res: Response) => {
+  try {
+    const localConfig = readLocalGatewayConfig();
+    const hasConfig = !!localConfig;
+    res.json({
+      found: hasConfig,
+      url: localConfig?.url || 'ws://localhost:18789',
+      hasToken: !!localConfig?.token,
+      token: localConfig?.token || undefined,
+      port: localConfig?.port || 18789,
+    });
+  } catch (err) {
+    res.json({ found: false, url: 'ws://localhost:18789', hasToken: false });
   }
 });
 
