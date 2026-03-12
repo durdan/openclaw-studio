@@ -11,9 +11,6 @@ function nodesOfType(graph: StudioGraph, type: NodeType): StudioNode[] {
   return graph.nodes.filter((n) => n.type === type);
 }
 
-function nodeHasEdge(graph: StudioGraph, nodeId: string): boolean {
-  return graph.edges.some((e) => e.source === nodeId || e.target === nodeId);
-}
 
 const rules: RuleCheck[] = [
   {
@@ -69,19 +66,8 @@ const rules: RuleCheck[] = [
       return issues;
     },
   },
-  {
-    id: 'skill-has-output',
-    check: (graph) => {
-      const issues: ValidationIssue[] = [];
-      for (const node of nodesOfType(graph, NodeType.Skill)) {
-        const cfg = node.config as SkillNodeConfig;
-        if (!cfg.output_schema) {
-          issues.push({ rule_id: 'skill-has-output', node_id: node.id, message: `Skill node "${node.label}" should have an output_schema defined`, severity: 'warning' });
-        }
-      }
-      return issues;
-    },
-  },
+  // Note: "skill-has-output" rule removed — OpenClaw skills use SKILL.md with
+  // YAML frontmatter and don't require output_schema. It's optional metadata.
   {
     id: 'tool-has-binding',
     check: (graph) => {
@@ -157,18 +143,9 @@ const rules: RuleCheck[] = [
       return [];
     },
   },
-  {
-    id: 'no-orphan-agents',
-    check: (graph) => {
-      const issues: ValidationIssue[] = [];
-      for (const node of nodesOfType(graph, NodeType.Agent)) {
-        if (!nodeHasEdge(graph, node.id)) {
-          issues.push({ rule_id: 'no-orphan-agents', node_id: node.id, message: `Agent node "${node.label}" has no connections`, severity: 'warning' });
-        }
-      }
-      return issues;
-    },
-  },
+  // Note: "no-orphan-agents" rule removed — OpenClaw agents are independent
+  // and communicate via channel bindings, not canvas edges. Unconnected
+  // agent nodes are normal and expected.
   {
     id: 'no-disconnected-tools',
     check: (graph) => {
@@ -209,7 +186,6 @@ const RULE_DESCRIPTIONS: ValidationRule[] = [
   { id: 'agent-has-goal', node_type: NodeType.Agent, description: 'Agent nodes must have a goal', severity: 'error' },
   { id: 'agent-has-role', node_type: NodeType.Agent, description: 'Agent nodes must have a role', severity: 'error' },
   { id: 'skill-has-purpose', node_type: NodeType.Skill, description: 'Skill nodes must have a purpose', severity: 'error' },
-  { id: 'skill-has-output', node_type: NodeType.Skill, description: 'Skill nodes should have an output_schema', severity: 'warning' },
   { id: 'tool-has-binding', node_type: NodeType.Tool, description: 'Tool nodes must have a binding_name', severity: 'error' },
   { id: 'tool-has-type', node_type: NodeType.Tool, description: 'Tool nodes must have a tool_type', severity: 'error' },
   { id: 'heartbeat-has-schedule', node_type: NodeType.Heartbeat, description: 'Heartbeat nodes must have a schedule', severity: 'error' },

@@ -25,15 +25,25 @@ function StudioLayoutInner() {
   // Manual validate with toast feedback
   const handleValidate = useCallback(async () => {
     await validate();
-    // Read latest result from store after validation
     const result = useDesignStore.getState().validationResult;
     if (!result) return;
+
     if (result.valid && result.warnings.length === 0) {
       toast('success', 'All validation checks passed');
     } else if (result.valid && result.warnings.length > 0) {
-      toast('warning', `Valid with ${result.warnings.length} warning${result.warnings.length > 1 ? 's' : ''}`);
+      const lines = [`${result.warnings.length} warning${result.warnings.length > 1 ? 's' : ''}:`, ...result.warnings.map((w) => `• ${w.message}`)];
+      toast('warning', lines.join('\n'), 8000);
     } else {
-      toast('error', `${result.errors.length} error${result.errors.length > 1 ? 's' : ''}, ${result.warnings.length} warning${result.warnings.length > 1 ? 's' : ''}`);
+      const lines: string[] = [];
+      if (result.errors.length > 0) {
+        lines.push(`${result.errors.length} error${result.errors.length > 1 ? 's' : ''}:`);
+        lines.push(...result.errors.map((e) => `• ${e.message}`));
+      }
+      if (result.warnings.length > 0) {
+        lines.push(`${result.warnings.length} warning${result.warnings.length > 1 ? 's' : ''}:`);
+        lines.push(...result.warnings.map((w) => `• ${w.message}`));
+      }
+      toast('error', lines.join('\n'), 10000);
     }
   }, [validate, toast]);
 

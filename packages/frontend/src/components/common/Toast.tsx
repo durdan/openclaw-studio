@@ -8,10 +8,11 @@ interface ToastMessage {
   id: string;
   type: ToastType;
   message: string;
+  duration?: number;
 }
 
 interface ToastContextValue {
-  toast: (type: ToastType, message: string) => void;
+  toast: (type: ToastType, message: string, duration?: number) => void;
 }
 
 const ToastContext = createContext<ToastContextValue>({
@@ -69,9 +70,9 @@ function ToastIcon({ type }: { type: ToastType }) {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const addToast = useCallback((type: ToastType, message: string) => {
+  const addToast = useCallback((type: ToastType, message: string, duration?: number) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setToasts((prev) => [...prev, { id, type, message }]);
+    setToasts((prev) => [...prev, { id, type, message, duration }]);
   }, []);
 
   const removeToast = useCallback((id: string) => {
@@ -93,17 +94,29 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 function ToastItem({ toast, onDismiss }: { toast: ToastMessage; onDismiss: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onDismiss, 4000);
+    const timer = setTimeout(onDismiss, toast.duration ?? 4000);
     return () => clearTimeout(timer);
-  }, [onDismiss]);
+  }, [onDismiss, toast.duration]);
+
+  const lines = toast.message.split('\n');
 
   return (
     <div
-      className={`flex items-center gap-2 rounded border px-3 py-2 text-xs shadow-lg animate-in slide-in-from-right ${typeStyles[toast.type]}`}
-      style={{ minWidth: '240px', maxWidth: '360px' }}
+      className={`flex items-start gap-2 rounded border px-3 py-2 text-xs shadow-lg animate-in slide-in-from-right ${typeStyles[toast.type]}`}
+      style={{ minWidth: '240px', maxWidth: '400px' }}
     >
-      <ToastIcon type={toast.type} />
-      <span className="flex-1">{toast.message}</span>
+      <span className="mt-0.5"><ToastIcon type={toast.type} /></span>
+      <span className="flex-1">
+        {lines.length === 1 ? (
+          lines[0]
+        ) : (
+          <span className="flex flex-col gap-0.5">
+            {lines.map((line, i) => (
+              <span key={i}>{line}</span>
+            ))}
+          </span>
+        )}
+      </span>
       <button
         onClick={onDismiss}
         className="ml-1 opacity-60 hover:opacity-100 transition-opacity"

@@ -2,8 +2,10 @@ import { Router, Request, Response } from 'express';
 import { filesystemAdapter } from '../adapters/filesystem.adapter';
 import { openclawBundleAdapter } from '../adapters/openclaw-bundle.adapter';
 import { gitAdapter } from '../adapters/git.adapter';
+import { gatewayAdapter } from '../adapters/gateway.adapter';
 import { exportService } from '../services/export.service';
 import { designService } from '../services/design.service';
+import { gatewayHealth, gatewayListAgents, detectAuthMode, type GatewayConfig, type AuthMode } from '../services/gateway-rpc';
 import { getDb } from '../db';
 import { v4 as uuidv4 } from 'uuid';
 import type { IExportAdapter, ExportTarget, StudioDesign } from '@openclaw-studio/shared';
@@ -13,6 +15,7 @@ const adapters: Record<string, IExportAdapter> = {
   filesystem: filesystemAdapter,
   'openclaw-bundle': openclawBundleAdapter,
   git: gitAdapter,
+  gateway: gatewayAdapter,
 };
 
 interface ExportTargetRow {
@@ -108,24 +111,29 @@ publishRouter.post('/', async (req: Request, res: Response) => {
       config: config || {},
     };
 
-    // Record publish run
+    // Record publish run (only if design is saved and target exists in DB)
     const db = getDb();
     const runId = uuidv4();
     const now = new Date().toISOString();
 
+    const designRow = design_id ? db.prepare('SELECT id FROM studio_designs WHERE id = ?').get(design_id) as { id: string } | undefined : undefined;
     const targetRow = db.prepare('SELECT id FROM studio_export_targets WHERE target_type = ?').get(target_type) as { id: string } | undefined;
-    const exportTargetId = targetRow?.id || 'unknown';
+    const canRecord = designRow && targetRow;
 
-    db.prepare(`
-      INSERT INTO studio_publish_runs (id, design_id, export_target_id, status, request_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(runId, design.id, exportTargetId, 'running', JSON.stringify({ target_type, config }), now, now);
+    if (canRecord) {
+      db.prepare(`
+        INSERT INTO studio_publish_runs (id, design_id, export_target_id, status, request_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(runId, designRow.id, targetRow.id, 'running', JSON.stringify({ target_type, config }), now, now);
+    }
 
     const result = await adapter.publish(bundle, adapterConfig);
 
-    db.prepare(`
-      UPDATE studio_publish_runs SET status = ?, response_json = ?, updated_at = ? WHERE id = ?
-    `).run(result.success ? 'success' : 'failed', JSON.stringify(result), new Date().toISOString(), runId);
+    if (canRecord) {
+      db.prepare(`
+        UPDATE studio_publish_runs SET status = ?, response_json = ?, updated_at = ? WHERE id = ?
+      `).run(result.success ? 'success' : 'failed', JSON.stringify(result), new Date().toISOString(), runId);
+    }
 
     res.json(result);
   } catch (err) {
@@ -185,6 +193,63 @@ publishRouter.get('/targets', (_req: Request, res: Response) => {
     const db = getDb();
     const rows = db.prepare('SELECT * FROM studio_export_targets ORDER BY name ASC').all() as ExportTargetRow[];
     res.json(rows.map(parseTargetRow));
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// POST /api/publish/gateway/auth-mode - Detect which auth mode will be used
+publishRouter.post('/gateway/auth-mode', (req: Request, res: Response) => {
+  try {
+    const { gateway_url, auth_mode } = req.body;
+    const gwConfig: GatewayConfig = {
+      url: gateway_url || 'ws://localhost:18789',
+      authMode: (auth_mode as AuthMode) || 'auto',
+    };
+    const info = detectAuthMode(gwConfig);
+    res.json(info);
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// POST /api/publish/gateway/health - Check gateway connectivity
+publishRouter.post('/gateway/health', async (req: Request, res: Response) => {
+  try {
+    const { gateway_url, gateway_token, insecure_tls, auth_mode } = req.body;
+    if (!gateway_url) {
+      res.status(400).json({ ok: false, message: 'gateway_url is required' });
+      return;
+    }
+    const gwConfig: GatewayConfig = {
+      url: gateway_url,
+      token: gateway_token,
+      insecureTls: insecure_tls ?? false,
+      authMode: (auth_mode as AuthMode) || 'auto',
+    };
+    const result = await gatewayHealth(gwConfig);
+    res.json(result);
+  } catch (err) {
+    res.json({ ok: false, message: (err as Error).message });
+  }
+});
+
+// POST /api/publish/gateway/agents - List agents on a gateway
+publishRouter.post('/gateway/agents', async (req: Request, res: Response) => {
+  try {
+    const { gateway_url, gateway_token, insecure_tls, auth_mode } = req.body;
+    if (!gateway_url) {
+      res.status(400).json({ error: { message: 'gateway_url is required' } });
+      return;
+    }
+    const gwConfig: GatewayConfig = {
+      url: gateway_url,
+      token: gateway_token,
+      insecureTls: insecure_tls ?? false,
+      authMode: (auth_mode as AuthMode) || 'auto',
+    };
+    const agents = await gatewayListAgents(gwConfig);
+    res.json({ agents });
   } catch (err) {
     res.status(500).json({ error: { message: (err as Error).message } });
   }

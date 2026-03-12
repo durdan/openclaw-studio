@@ -2,21 +2,21 @@ import type { ExportBundle, AdapterConfig, PublishResult, AgentDefinition, Skill
 import { BaseAdapter } from './base.adapter';
 
 /**
- * Generates workspace files matching the real OpenClaw specification.
+ * Generates workspace files matching the REAL OpenClaw 2026.3.x specification.
  *
- * OpenClaw multi-agent setup uses separate workspace directories per agent,
- * configured via openclaw.json. Each workspace has the same file structure:
+ * Verified against a live OpenClaw installation (v2026.3.8).
  *
  *   ~/.openclaw/
- *   ├── openclaw.json                    # Central config
+ *   ├── openclaw.json                    # Central config (agents, auth, channels, gateway, etc.)
  *   ├── workspace/                       # Default agent (first agent)
- *   │   ├── AGENTS.md                    # Operating instructions
- *   │   ├── SOUL.md                      # Persona & boundaries
- *   │   ├── IDENTITY.md                  # Name, emoji
- *   │   ├── TOOLS.md                     # Tool notes
- *   │   ├── USER.md                      # Owner info
- *   │   ├── HEARTBEAT.md                 # Heartbeat checklist
- *   │   ├── MEMORY.md                    # Long-term memory
+ *   │   ├── AGENTS.md                    # Operating manual (role, mission, rules, memory, heartbeat)
+ *   │   ├── SOUL.md                      # Personality & values (structured markdown with headers)
+ *   │   ├── IDENTITY.md                  # Self-identity (name, creature, vibe, emoji, avatar)
+ *   │   ├── TOOLS.md                     # Local environment notes (cameras, SSH, devices)
+ *   │   ├── USER.md                      # About the human owner
+ *   │   ├── HEARTBEAT.md                 # Heartbeat checklist (empty = skip heartbeats)
+ *   │   ├── MEMORY.md                    # Curated long-term memory (main session only)
+ *   │   ├── memory/                      # Daily logs (YYYY-MM-DD.md)
  *   │   └── skills/
  *   │       └── <skill>/SKILL.md
  *   ├── workspace-<agentId>/             # Additional agents
@@ -33,12 +33,14 @@ interface OpenClawConfig {
   agents: {
     defaults: {
       model: { primary: string; fallbacks?: string[] };
+      workspace?: string;
     };
     list: Array<{
       id: string;
       default?: boolean;
       name: string;
       workspace: string;
+      agentDir: string;
       model?: string;
     }>;
   };
@@ -59,54 +61,95 @@ function workspacePath(agentIdx: number, slug: string): string {
   return agentIdx === 0 ? 'workspace' : `workspace-${slug}`;
 }
 
+/** Strip leading "Always"/"Never" prefix if present (case-insensitive) to avoid doubling */
+function stripPrefix(rule: string, prefix: string): string {
+  const re = new RegExp(`^${prefix}\\s+`, 'i');
+  return rule.replace(re, '');
+}
+
 // --- File Generators ---
 
 /**
- * SOUL.md — Informal personality prompt (lowercase, no headers).
- * This is the official OpenClaw convention: SOUL.md is raw personality text,
- * not structured markdown. It signals "this is who I am" vs "this is what I do".
+ * SOUL.md — Personality, values, and behavioral guidelines.
+ * Real OpenClaw SOUL.md uses structured markdown with ## headers,
+ * NOT lowercase prose (corrected from earlier assumption).
  */
 function generateSoulMd(agent: AgentDefinition): string {
-  const parts: string[] = [];
+  const lines: string[] = [];
 
-  // Build personality description from available fields
+  lines.push(`# SOUL.md - Who You Are`);
+  lines.push('');
+
+  // Core Truths / Personality
+  lines.push('## Core Truths');
+  lines.push('');
   if (agent.personality) {
-    parts.push(agent.personality.toLowerCase());
+    lines.push(agent.personality);
   } else {
-    // Synthesize from role + communication style
-    parts.push(`you are ${agent.role.toLowerCase()}.`);
+    lines.push(`You are ${agent.role}. Be genuinely helpful, not performatively helpful.`);
   }
-
   if (agent.communication_style) {
-    parts.push(agent.communication_style.toLowerCase());
+    lines.push('');
+    lines.push(agent.communication_style);
+  }
+  lines.push('');
+
+  // Boundaries from do/don't rules
+  if ((agent.do_rules && agent.do_rules.length > 0) || (agent.dont_rules && agent.dont_rules.length > 0)) {
+    lines.push('## Boundaries');
+    lines.push('');
+    if (agent.do_rules) {
+      for (const rule of agent.do_rules) {
+        lines.push(`- Always ${stripPrefix(rule, 'always')}`);
+      }
+    }
+    if (agent.dont_rules) {
+      for (const rule of agent.dont_rules) {
+        lines.push(`- Never ${stripPrefix(rule, 'never')}`);
+      }
+    }
+    lines.push('');
   }
 
-  // Add behavioral tone from do/don't rules
-  if (agent.do_rules && agent.do_rules.length > 0) {
-    const doText = agent.do_rules.map((r) => r.toLowerCase()).join('. ');
-    parts.push(`you always ${doText}.`);
+  // Vibe
+  lines.push('## Vibe');
+  lines.push('');
+  if (agent.description) {
+    lines.push(agent.description);
+  } else {
+    lines.push('Be the assistant you\'d actually want to talk to. Concise when needed, thorough when it matters.');
   }
+  lines.push('');
 
-  if (agent.dont_rules && agent.dont_rules.length > 0) {
-    const dontText = agent.dont_rules.map((r) => r.toLowerCase()).join('. you never ');
-    parts.push(`you never ${dontText}.`);
-  }
+  // Continuity
+  lines.push('## Continuity');
+  lines.push('');
+  lines.push('Each session, you wake up fresh. These files _are_ your memory. Read them. Update them. They\'re how you persist.');
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push('_This file is yours to evolve. As you learn who you are, update it._');
+  lines.push('');
 
-  if (agent.description && !agent.personality) {
-    parts.push(agent.description.toLowerCase());
-  }
-
-  return parts.join(' ') + '\n';
+  return lines.join('\n');
 }
 
 /**
- * AGENTS.md — Structured operating instructions (formal markdown with headers).
- * This is the "user manual" for the agent: role, mission, capabilities, rules.
+ * AGENTS.md — The full operating manual for the agent.
+ * Includes role, mission, capabilities, rules, memory system, and coordination.
  */
 function generateAgentsMd(agent: AgentDefinition, skills: string[], tools: string[]): string {
   const lines: string[] = [];
 
-  lines.push(`# ${agent.name}`);
+  lines.push(`# ${agent.name} - Your Workspace`);
+
+  // Session Startup
+  lines.push('', '## Session Startup');
+  lines.push('', 'Before doing anything else:');
+  lines.push('', '1. Read `SOUL.md` — this is who you are');
+  lines.push('2. Read `USER.md` — this is who you\'re helping');
+  lines.push('3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context');
+  lines.push('4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`');
 
   // Role
   lines.push('', '## Role');
@@ -136,22 +179,48 @@ function generateAgentsMd(agent: AgentDefinition, skills: string[], tools: strin
   // Tools
   if (tools.length > 0) {
     lines.push('', '## Tools');
+    lines.push('Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes in `TOOLS.md`.');
     for (const t of tools) lines.push(`- ${t}`);
   }
+
+  // Memory
+  lines.push('', '## Memory');
+  lines.push('', 'You wake up fresh each session. These files are your continuity:');
+  lines.push('', '- **Daily notes:** `memory/YYYY-MM-DD.md` — raw logs of what happened');
+  lines.push('- **Long-term:** `MEMORY.md` — your curated memories (main session only)');
+  lines.push('', 'Capture what matters. Decisions, context, things to remember.');
 
   // Rules
   const allRules: string[] = [];
   if (agent.rules) allRules.push(...agent.rules);
-  if (agent.do_rules) allRules.push(...agent.do_rules.map((r) => `Always ${r}`));
-  if (agent.dont_rules) allRules.push(...agent.dont_rules.map((r) => `Never ${r}`));
+  if (agent.do_rules) allRules.push(...agent.do_rules.map((r) => `Always ${stripPrefix(r, 'always')}`));
+  if (agent.dont_rules) allRules.push(...agent.dont_rules.map((r) => `Never ${stripPrefix(r, 'never')}`));
+
+  // Always include Red Lines
+  lines.push('', '## Red Lines');
+  lines.push('');
+  lines.push('- Don\'t exfiltrate private data. Ever.');
+  lines.push('- Don\'t run destructive commands without asking.');
+  lines.push('- `trash` > `rm` (recoverable beats gone forever)');
+  lines.push('- When in doubt, ask.');
   if (allRules.length > 0) {
-    lines.push('', '## Rules');
+    lines.push('');
     for (const r of allRules) {
       lines.push(`- ${r}`);
     }
   }
 
-  // Handoffs
+  // External vs Internal
+  lines.push('', '## External vs Internal');
+  lines.push('', '**Safe to do freely:**');
+  lines.push('- Read files, explore, organize, learn');
+  lines.push('- Search the web, check calendars');
+  lines.push('- Work within this workspace');
+  lines.push('', '**Ask first:**');
+  lines.push('- Sending emails, tweets, public posts');
+  lines.push('- Anything that leaves the machine');
+
+  // Handoffs / Coordination
   if (agent.handoffs && agent.handoffs.length > 0) {
     lines.push('', '## Coordination');
     for (const h of agent.handoffs) {
@@ -167,48 +236,92 @@ function generateAgentsMd(agent: AgentDefinition, skills: string[], tools: strin
   return lines.join('\n') + '\n';
 }
 
+/**
+ * IDENTITY.md — Self-identity template.
+ * Agent fills this in during first conversation (or pre-populated by Studio).
+ */
 function generateIdentityMd(agent: AgentDefinition): string {
-  return `# Identity
+  return `# IDENTITY.md - Who Am I?
 
-**Name:** ${agent.name}
-**Role:** ${agent.role}
+- **Name:** ${agent.name}
+- **Creature:** AI agent
+- **Vibe:** ${agent.personality || agent.communication_style || '(to be discovered)'}
+- **Emoji:** (pick one that feels right)
+- **Avatar:** (workspace-relative path, http(s) URL, or data URI)
+
+---
+
+This isn't just metadata. It's the start of figuring out who you are.
 `;
 }
 
-function generateToolsMd(agent: AgentDefinition): string {
-  if (agent.tools.length === 0) {
-    return `# Tools
+/**
+ * TOOLS.md — Local environment notes.
+ * NOT auto-managed tool bindings. This is for environment-specific details
+ * like camera names, SSH hosts, voice preferences, device nicknames.
+ */
+function generateToolsMd(skills: string[], tools: string[]): string {
+  const lines: string[] = [];
+  lines.push('# TOOLS.md - Local Notes');
+  lines.push('');
+  lines.push('Skills define _how_ tools work. This file is for _your_ specifics — the stuff that\'s unique to your setup.');
+  lines.push('');
 
-No tools configured for this agent.
+  if (skills.length > 0 || tools.length > 0) {
+    lines.push('## Installed Skills');
+    lines.push('');
+    for (const s of skills) lines.push(`- ${s}`);
+    for (const t of tools) lines.push(`- ${t}`);
+    lines.push('');
+  }
+
+  lines.push('## Environment Notes');
+  lines.push('');
+  lines.push('Add whatever helps you do your job. This is your cheat sheet.');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * USER.md — Info about the human owner. Template to be filled in.
+ */
+function generateUserMd(): string {
+  return `# USER.md - About Your Human
+
+_Learn about the person you're helping. Update this as you go._
+
+- **Name:**
+- **What to call them:**
+- **Pronouns:** _(optional)_
+- **Timezone:**
+- **Notes:**
+
+## Context
+
+_(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)_
+
+---
+
+The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.
+`;
+}
+
+/**
+ * HEARTBEAT.md — Keep empty to skip heartbeat API calls.
+ * Add tasks below when you want the agent to check something periodically.
+ */
+function generateHeartbeatMd(heartbeat?: HeartbeatDefinition): string {
+  if (!heartbeat) {
+    return `# HEARTBEAT.md
+
+# Keep this file empty (or with only comments) to skip heartbeat API calls.
+
+# Add tasks below when you want the agent to check something periodically.
 `;
   }
 
-  const toolEntries = agent.tools.map((t) => `### ${t}\n- Binding: \`${t}\`\n- Status: Active`).join('\n\n');
-
-  return `# Tools
-
-${toolEntries}
-`;
-}
-
-function generateUserMd(): string {
-  return `# User
-
-<!-- Fill in your details so the agent can personalize its responses -->
-
-## About
-- **Name:** (your name)
-- **Role:** (your role)
-
-## Preferences
-- (your preferences)
-`;
-}
-
-function generateHeartbeatMd(heartbeat?: HeartbeatDefinition): string {
-  if (!heartbeat) return '';
-
-  return `# Heartbeat
+  return `# HEARTBEAT.md
 
 ## Schedule
 - **Mode:** ${heartbeat.mode}
@@ -219,13 +332,24 @@ function generateHeartbeatMd(heartbeat?: HeartbeatDefinition): string {
 ${heartbeat.escalation_summary ? `\n## Escalation\n${heartbeat.escalation_summary}\n` : ''}`;
 }
 
+/**
+ * MEMORY.md — Curated long-term memory. Only loaded in main session for security.
+ */
 function generateMemoryMd(agentName: string): string {
-  return `# Memory
+  return `# MEMORY.md - Long-Term Memory for ${agentName}
 
-> Long-term memory for ${agentName}. Curated facts persist across sessions.
+_Only loaded in main session (direct chat). Not shared in group chats for security._
 
-## Setup
-- Agent configured via OpenClaw Studio
+## About
+
+This is your curated memory — the distilled essence, not raw logs.
+Write significant events, thoughts, decisions, opinions, lessons learned.
+
+Over time, review your daily files (memory/YYYY-MM-DD.md) and update this with what's worth keeping.
+
+---
+
+_(Start building your memory here.)_
 `;
 }
 
@@ -271,6 +395,7 @@ function generateOpenClawJson(agents: AgentDefinition[], defaultModel: string): 
           default: idx === effectiveDefaultIdx ? true : undefined,
           name: agent.name,
           workspace: `~/.openclaw/${wsDir}`,
+          agentDir: `~/.openclaw/agents/${slug}/agent`,
           model: agent.model !== defaultModel ? agent.model : undefined,
         };
       }),
@@ -313,19 +438,14 @@ export class OpenClawBundleAdapter extends BaseAdapter {
       // Find this agent's heartbeat
       const heartbeat = agent.heartbeat_config;
 
-      // Core workspace files
-      files[`${wsDir}/SOUL.md`] = generateSoulMd(agent);
+      // Core workspace files (matches real OpenClaw 2026.3.x)
       files[`${wsDir}/AGENTS.md`] = generateAgentsMd(agent, agent.skills, agent.tools);
+      files[`${wsDir}/SOUL.md`] = generateSoulMd(agent);
       files[`${wsDir}/IDENTITY.md`] = generateIdentityMd(agent);
-      files[`${wsDir}/TOOLS.md`] = generateToolsMd(agent);
+      files[`${wsDir}/TOOLS.md`] = generateToolsMd(agent.skills, agent.tools);
       files[`${wsDir}/USER.md`] = generateUserMd();
+      files[`${wsDir}/HEARTBEAT.md`] = generateHeartbeatMd(heartbeat);
       files[`${wsDir}/MEMORY.md`] = generateMemoryMd(agent.name);
-
-      // Optional files
-      const heartbeatMd = generateHeartbeatMd(heartbeat);
-      if (heartbeatMd) {
-        files[`${wsDir}/HEARTBEAT.md`] = heartbeatMd;
-      }
 
       // Per-agent skills (skills connected to this agent)
       for (const skillName of agent.skills) {
