@@ -202,7 +202,6 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
     } finally {
       setIsLoadingStatus(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gatewayUrl, gatewayToken, insecureTls]);
 
   const fetchPublishHistory = useCallback(async () => {
@@ -241,7 +240,6 @@ export function ExportDialog({ isOpen, onClose }: ExportDialogProps) {
     } catch {
       return [];
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDesign?.graph, gatewayUrl, gatewayToken, insecureTls]);
 
   const handlePublishToGateway = async () => {

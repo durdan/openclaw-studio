@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { ThemeInitScript } from './theme-init';
 
 export const metadata: Metadata = {
   title: 'OpenClaw Studio',
@@ -12,7 +13,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <ThemeInitScript />
+      </head>
       <body className="min-h-screen bg-studio-bg text-studio-text">
         {children}
       </body>

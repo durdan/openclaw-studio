@@ -343,6 +343,27 @@ export async function gatewayGetConfig(config: GatewayConfig): Promise<{ config:
   return result;
 }
 
+export async function gatewaySkillsSearch(
+  query: string,
+  config: GatewayConfig,
+): Promise<unknown> {
+  return gatewayCall('skills.search', { query }, config);
+}
+
+export async function gatewaySkillsList(config: GatewayConfig): Promise<unknown> {
+  return gatewayCall('skills.list', {}, config);
+}
+
+export async function gatewaySkillInstall(
+  name: string,
+  config: GatewayConfig,
+  agentId?: string,
+): Promise<unknown> {
+  const params: Record<string, unknown> = { name };
+  if (agentId) params.agentId = agentId;
+  return gatewayCall('skills.install', params, config);
+}
+
 export async function gatewaySetFile(
   agentId: string,
   name: string,

@@ -8,13 +8,13 @@ const config: Config = {
     extend: {
       colors: {
         studio: {
-          bg: '#0f1117',
-          surface: '#1a1d27',
-          border: '#2a2d3a',
-          accent: '#6366f1',
-          'accent-hover': '#818cf8',
-          text: '#e2e8f0',
-          'text-muted': '#94a3b8',
+          bg: 'rgb(var(--studio-bg) / <alpha-value>)',
+          surface: 'rgb(var(--studio-surface) / <alpha-value>)',
+          border: 'rgb(var(--studio-border) / <alpha-value>)',
+          accent: 'rgb(var(--studio-accent) / <alpha-value>)',
+          'accent-hover': 'rgb(var(--studio-accent-hover) / <alpha-value>)',
+          text: 'rgb(var(--studio-text) / <alpha-value>)',
+          'text-muted': 'rgb(var(--studio-text-muted) / <alpha-value>)',
         },
       },
     },

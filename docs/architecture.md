@@ -12,13 +12,6 @@ graph LR
         UI -->|REST API| API
     end
 
-    subgraph Output ["Generated Workspace Files"]
-        OJ[openclaw.json]
-        WS1[workspace/<br/>SOUL.md, AGENTS.md, ...]
-        WS2[workspace-agent2/<br/>SOUL.md, AGENTS.md, ...]
-        SK[skills/<br/>SKILL.md]
-    end
-
     subgraph Runtime ["OpenClaw Gateway (Runtime)"]
         GW[Gateway Core<br/>Message Router]
         AG1[Agent 1]
@@ -27,8 +20,7 @@ graph LR
         GW --> AG2
     end
 
-    API -->|Publish| Output
-    Output -->|openclaw restart| Runtime
+    API -->|"WebSocket RPC<br/>agents.files.set<br/>skills.install<br/>config.patch"| Runtime
 ```
 
 ---
@@ -132,11 +124,17 @@ sequenceDiagram
     Adapter-->>ExportDialog: {files, openclaw_json}
     ExportDialog->>ExportDialog: Show file browser preview
 
-    User->>ExportDialog: Click "Publish to OpenClaw"
-    ExportDialog->>API: POST /api/publish {graph, target: filesystem}
-    API->>FS: Write files to ~/.openclaw/
-    FS-->>ExportDialog: Success (N files written)
-    Note over User: Run: openclaw restart
+    User->>ExportDialog: Click "Publish to Gateway"
+    ExportDialog->>API: POST /api/publish {graph, target: gateway}
+    API->>Adapter: GatewayAdapter.publish()
+    Adapter->>GW: agents.create + agents.update (per agent)
+    Adapter->>GW: agents.files.set (SOUL.md, AGENTS.md, etc.)
+    Note over Adapter: Skips USER.md + MEMORY.md on re-publish
+    Adapter->>GW: skills.install (ClawHub skills per agent)
+    Adapter->>GW: config.patch (agents list, bindings, tools.exec.host)
+    Note over Adapter: Skipped if config unchanged
+    Adapter->>GW: sessions.patch + chat.send (wake agents)
+    GW-->>ExportDialog: Success (N agents, M files)
 ```
 
 ---
@@ -168,6 +166,11 @@ graph LR
         A1[Filesystem Adapter]
         A2[OpenClaw Bundle Adapter]
         A3[Git Adapter]
+        A4[Gateway Direct Adapter]
+    end
+
+    subgraph GatewayRPC ["Gateway WebSocket RPC"]
+        GW[Gateway WS Client<br/>Protocol v3]
     end
 
     R1 --> S1
@@ -180,9 +183,12 @@ graph LR
     S5 --> A1
     S5 --> A2
     S5 --> A3
+    S5 --> A4
 
     A1 -->|delegates| A2
     A3 -->|delegates| A1
+    A4 -->|delegates| A2
+    A4 -->|"agents.files.set<br/>skills.install<br/>config.patch"| GW
 
     S1 --> DB[(SQLite)]
     S3 --> OR[OpenRouter API]
@@ -212,6 +218,9 @@ graph LR
 | POST | `/api/publish` | Export + Adapter | Publish to target |
 | POST | `/api/publish/preview` | Export + Adapter | Preview workspace files |
 | GET | `/api/publish/targets` | Publish | List export targets |
+| POST | `/api/publish/gateway/skills/search` | Gateway RPC | Search ClawHub skills via gateway |
+| POST | `/api/publish/gateway/skills/list` | Gateway RPC | List installed skills on gateway |
+| POST | `/api/publish/gateway/skills/install` | Gateway RPC | Install a ClawHub skill on gateway |
 | GET | `/api/health` | — | Health check |
 
 ---
@@ -324,9 +333,11 @@ graph TB
     ReactFlow --> OtherNodes[Condition, Approval,<br/>Output, Workspace,<br/>Heartbeat, TemplateRef]
 
     PropsPanel --> AgentProps[Agent Properties<br/>AGENTS.md, SOUL.md, Model,<br/>Tools, Bindings, Handoffs,<br/>LLM Settings, Previews]
-    PropsPanel --> SkillProps[Skill Properties]
+    PropsPanel --> SkillProps[Skill Properties<br/>+ ClawHub Browser]
     PropsPanel --> ToolProps[Tool Properties]
     PropsPanel --> OtherProps[Other Properties]
+
+    SkillProps --> SkillBrowser[ClawHub Skill Browser<br/>Search 45K+ skills]
 ```
 
 ### Zustand Store Architecture
@@ -384,6 +395,41 @@ graph TB
         E9[GroupedUnder]
     end
 ```
+
+---
+
+## Gateway WebSocket RPC
+
+Studio communicates with the OpenClaw Gateway using WebSocket RPC (protocol v3). The `gateway-rpc.ts` service handles connection, authentication, and message exchange.
+
+### Authentication Modes
+
+| Mode | Client ID | When Used | Requirements |
+|------|-----------|-----------|-------------|
+| **Device** (default) | `gateway-client` | `~/.openclaw/identity/device.json` exists | Ed25519 device keys (paired device) |
+| **Token** | `openclaw-control-ui` | Fallback when no device keys | `controlUi.allowInsecureAuth` on gateway |
+| **Auto** | — | Default behavior | Tries device first, falls back to token |
+
+### RPC Methods Used
+
+| Method | Step | Purpose |
+|--------|------|---------|
+| `health` | Pre-check | Verify gateway is reachable |
+| `agents.create` | Provisioning | Create agent workspace directory |
+| `agents.update` | Provisioning | Register agent name + workspace path |
+| `agents.files.set` | Provisioning | Push workspace files (SOUL.md, AGENTS.md, etc.) |
+| `skills.search` | Skill Browser | Search ClawHub registry for skills |
+| `skills.install` | Provisioning | Install ClawHub skill for an agent |
+| `config.get` | Config | Read current openclaw.json + hash |
+| `config.patch` | Config | Update agents list, bindings, tools.exec.host |
+| `sessions.patch` | Wake | Ensure agent session exists |
+| `chat.send` | Wake | Send bootstrap message to start agent |
+
+### Smart Re-publish Behavior
+
+- **USER.md and MEMORY.md** are skipped on re-publish (agent already exists) to preserve user data and agent memories
+- **config.patch** is skipped if the config is unchanged (avoids gateway restarts that rotate agent tokens)
+- **tools.exec.host: "gateway"** is added only if not already set (won't override user's choice)
 
 ---
 
@@ -549,9 +595,9 @@ openclaw-studio/
 │   │       ├── index.ts           # Entry point, route mounting
 │   │       ├── config.ts          # Environment config
 │   │       ├── db/                # SQLite setup + migrations
-│   │       ├── routes/            # REST endpoints (8 routers)
-│   │       ├── services/          # Business logic (7 services)
-│   │       ├── adapters/          # Export adapters (4 adapters)
+│   │       ├── routes/            # REST endpoints (8 routers + gateway skill proxy)
+│   │       ├── services/          # Business logic (7 services + gateway-rpc)
+│   │       ├── adapters/          # Export adapters (4: filesystem, openclaw-bundle, git, gateway)
 │   │       └── middleware/        # Error handler
 │   │
 │   └── frontend/                  # Next.js 14 (port 3000)
@@ -561,9 +607,9 @@ openclaw-studio/
 │           │   ├── layout/        # StudioLayout (3-panel)
 │           │   ├── canvas/        # React Flow canvas + 10 node types
 │           │   ├── chat/          # AI chat panel + input
-│           │   ├── properties/    # Node config editors (9 types)
+│           │   ├── properties/    # Node config editors (9 types) + ClawHub skill browser
 │           │   ├── export/        # Export dialog with file preview
-│           │   ├── common/        # Modal, Toast, Badge
+│           │   ├── common/        # Modal, Toast, Badge, ThemeToggle
 │           │   ├── sidebar/       # Design list, templates, assets
 │           │   ├── output/        # Validation, architecture reports
 │           │   ├── prompt/        # Use case prompt (legacy)
@@ -572,5 +618,5 @@ openclaw-studio/
 │           ├── hooks/             # Custom React hooks
 │           └── lib/               # API client, constants
 │
-└── data/                          # SQLite database (auto-created)
+└── packages/backend/data/             # SQLite database (auto-created)
 ```

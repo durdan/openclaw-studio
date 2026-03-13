@@ -2,18 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Light Theme (default) ─── */
 :root {
-  --studio-bg: #0f1117;
-  --studio-surface: #1a1d27;
-  --studio-border: #2a2d3a;
-  --studio-accent: #6366f1;
-  --studio-text: #e2e8f0;
-  --studio-text-muted: #94a3b8;
+  --studio-bg: 248 249 251;
+  --studio-surface: 255 255 255;
+  --studio-border: 226 229 235;
+  --studio-accent: 99 102 241;
+  --studio-accent-hover: 129 140 248;
+  --studio-text: 26 29 39;
+  --studio-text-muted: 100 116 139;
+}
+
+/* ─── Dark Theme ─── */
+[data-theme="dark"] {
+  --studio-bg: 15 17 23;
+  --studio-surface: 26 29 39;
+  --studio-border: 42 45 58;
+  --studio-accent: 99 102 241;
+  --studio-accent-hover: 129 140 248;
+  --studio-text: 226 232 240;
+  --studio-text-muted: 148 163 184;
 }
 
 body {
-  color: var(--studio-text);
-  background: var(--studio-bg);
+  color: rgb(var(--studio-text));
+  background: rgb(var(--studio-bg));
   font-family: system-ui, -apple-system, sans-serif;
   margin: 0;
   padding: 0;
@@ -26,10 +39,10 @@ body {
 }
 
 .react-flow__edge-path {
-  stroke: var(--studio-border);
+  stroke: rgb(var(--studio-border));
   stroke-width: 2;
 }
 
 .react-flow__background {
-  background: var(--studio-bg);
+  background: rgb(var(--studio-bg));
 }

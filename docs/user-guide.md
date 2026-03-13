@@ -4,7 +4,7 @@
 
 - **Node.js 18+** and **npm 9+**
 - An **OpenRouter API key** (for AI chat and planner features)
-- **OpenClaw** installed on the target machine (for publishing)
+- An **OpenClaw Gateway** running (for publishing and ClawHub skill search)
 
 ---
 
@@ -53,35 +53,58 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Studio Layout
 
-The Studio has a 3-panel layout inspired by CrewAI Studio:
+The Studio opens to a **landing page** with three entry points:
+
+1. **AI Prompt** — Describe your use case in plain English
+2. **Templates** — Choose from 8 real-world architecture templates
+3. **Blank Canvas** — Start from scratch
+
+Once inside a design, you see a 3-panel layout:
 
 ```
-┌──────────────┬──────────────────────────┬───────────────┐
-│              │                          │               │
-│   AI Chat    │        Canvas            │  Properties   │
-│   (Left)     │       (Center)           │   (Right)     │
-│              │                          │               │
-│  - Build     │  - Agent nodes           │  - AGENTS.md  │
-│  - Refine    │  - Skill nodes           │  - SOUL.md    │
-│  - Iterate   │  - Visual layout         │  - Model      │
-│              │                          │  - Tools      │
-│  [Send]      │  [Validate] [Publish]    │  - Bindings   │
-└──────────────┴──────────────────────────┴───────────────┘
+┌──────┬──────────────────────────┬───────────────┐
+│      │                          │               │
+│ Side │        Canvas            │  Properties   │
+│ bar  │       (Center)           │   (Right)     │
+│      │                          │               │
+│ Chat │  - Agent/Skill/Tool      │  - AGENTS.md  │
+│ Nav  │    nodes                 │  - SOUL.md    │
+│      │  - Visual layout         │  - Skills     │
+│      │                          │  - Model      │
+│ Theme│  [Validate] [Publish]    │  - Bindings   │
+└──────┴──────────────────────────┴───────────────┘
 ```
 
-| Panel | Width | Purpose |
-|-------|-------|---------|
-| **Left** | 400px | AI Chat — primary builder. Always visible. |
-| **Center** | Flex | Canvas — visual layout of your agent team. |
-| **Right** | 340px | Properties — appears when you click a node. |
+| Panel | Purpose |
+|-------|---------|
+| **Sidebar** (left) | AI Chat, navigation, theme toggle (light/dark) |
+| **Canvas** (center) | Visual layout of your agent team. Floating Validate + Publish bar. |
+| **Properties** (right) | Edit node config. Appears when you click a node. |
+
+Toggle between **light** and **dark** themes using the theme button in the sidebar.
 
 ---
 
 ## Step 1: Design Your Agent Team
 
+### Using Templates (Quick Start)
+
+Pick from 8 production-ready templates on the landing page:
+
+- **Email Intelligence** — Inbox monitoring across 10 mailboxes
+- **DevOps Automation** — Sentry alerts → diagnose → fix PR
+- **Brain & Hands** — OpenClaw reasoning + n8n execution
+- **Compliance Monitor** — Playwright + AI regulatory assessment
+- **Marketing Growth** — 7-platform social, SEO, competitor intel
+- **Data Analytics** — KPI dashboards, expense tracking
+- **Multi-Agent Full Stack** — 3-agent system with cross-routing
+- **Business Ops** — Morning briefs, calendar, tasks
+
+Each template comes with pre-configured agents, skills, tools, and handoff patterns.
+
 ### Using AI Chat (Recommended)
 
-The AI chat panel on the left is the primary way to build workflows.
+The AI chat panel is the primary way to build custom workflows.
 
 1. Type a use case description:
    > "Build a customer support team with ticket triage, response drafting, and escalation"
@@ -98,14 +121,6 @@ The AI chat panel on the left is the primary way to build workflows.
    > "Add a knowledge base agent that maintains FAQ documents"
    > "Change Aura's model to MiniMax M2.1"
    > "Give Echo a firecrawl-cli tool"
-
-### Suggestion Cards
-
-If you're not sure what to build, click one of the suggestion cards:
-- "Build a customer support team with ticket triage and escalation"
-- "Create a content marketing crew with SEO and social media"
-- "Design a research agent that summarizes findings"
-- "Set up a DevOps pipeline with monitoring and alerting"
 
 ---
 
@@ -125,11 +140,11 @@ Each section maps to a real OpenClaw workspace file:
 - **Rules** — One per line. Maps to `## Rules` in AGENTS.md
 
 #### SOUL.md (Personality)
-- **Personality** — Informal lowercase prose describing how the agent communicates
-  > Example: "you are precise, methodical, and concise. you don't over-explain."
+- **Personality** — Structured markdown describing who the agent is
+  > Generates `## Core Truths`, `## Boundaries`, `## Vibe`, `## Continuity` sections
 - **Communication Style** — How the agent talks
-- **Do rules** — Behaviors the agent always follows
-- **Don't rules** — Behaviors the agent never exhibits
+- **Do rules** — Behaviors the agent always follows (maps to `## Boundaries`)
+- **Don't rules** — Behaviors the agent never exhibits (maps to `## Boundaries`)
 
 #### Channel Binding (openclaw.json)
 - **Channel** — Telegram, WhatsApp, Discord, Slack, or WebSocket
@@ -141,8 +156,8 @@ Each section maps to a real OpenClaw workspace file:
 - **Fallback Model** — Used when primary is unavailable
 
 #### Tools & Skills
-- **Tools** — One per line (e.g., Browser, FileSystem, Shell)
-- **Skills** — One per line (e.g., firecrawl-cli, github-cli)
+- **Tools** — One per line (e.g., Gmail, Telegram, GitHub, Slack)
+- **Skills** — Browse ClawHub to search and attach real community skills (see below)
 
 #### Handoffs (Coordination)
 - **Handoff Rules** — How this agent delegates to others
@@ -209,43 +224,62 @@ When you open the Publish dialog, validation runs automatically. If there are er
 
 ---
 
-## Step 4: Publish to OpenClaw
+## Step 3.5: Browse & Attach ClawHub Skills
 
-Click the **Publish** button (floating bar on canvas, or upload icon in chat header).
+Click any **Skill node** on the canvas to open its properties panel, then click **Browse ClawHub**:
+
+1. Search by keyword (email, github, scraping, database, etc.)
+2. Browse results showing name, description, version, and tags
+3. Click a skill to auto-fill its configuration
+4. The skill is marked with a green "ClawHub" badge
+5. On publish, Studio calls `skills.install` RPC to install it on the gateway per-agent
+
+> Requires a running gateway connection. You can also type skill names manually.
+
+---
+
+## Step 4: Publish to Gateway
+
+Click the **Publish** button (floating bar on canvas).
 
 ### Validation Gate
-The Publish dialog automatically validates your design on open. If errors exist, they are shown inline and the Publish/Preview buttons are disabled until you fix them.
+The Publish dialog automatically validates your design. Errors block publishing.
 
 ### Preview Workspace Files
 
-1. Click **Generate Preview** to see all files that will be created
-2. Browse the file tree on the left:
-   ```
-   workspace/
-     SOUL.md
-     AGENTS.md
-     IDENTITY.md
-     TOOLS.md
-     USER.md
-     MEMORY.md
-   workspace-echo/
-     SOUL.md
-     AGENTS.md
-     ...
-   openclaw.json
-   ```
-3. Click any file to see its content on the right
+Click **Generate Preview** to browse all files before publishing:
+```
+workspace/
+  SOUL.md, AGENTS.md, IDENTITY.md, TOOLS.md, USER.md, MEMORY.md, HEARTBEAT.md
+workspace-agent2/
+  (same structure)
+openclaw.json
+```
 
-### Publish Options
+### Publish to Gateway (Recommended)
 
-#### Write to Filesystem (Recommended)
-1. Set the output directory (default: `~/.openclaw`)
-2. Click **Publish to OpenClaw**
-3. Files are written directly to disk
-4. Run `openclaw restart` to pick up changes
+Studio publishes directly to a running OpenClaw Gateway via WebSocket RPC:
 
-#### Download Files
-Click **Download Files** to download all workspace files to your machine. Useful for reviewing before deploying to a remote server.
+1. Configure gateway URL (e.g., `ws://localhost:18789`) and optional token
+2. Click **Publish to Gateway**
+3. Studio executes the full provisioning flow:
+   - Creates agent workspaces
+   - Pushes workspace files (skips USER.md + MEMORY.md on re-publish)
+   - Installs ClawHub skills per-agent
+   - Patches openclaw.json config (adds `tools.exec.host: "gateway"`)
+   - Wakes agents with bootstrap instructions
+
+Authentication uses Ed25519 device keys if available (`~/.openclaw/identity/device.json`), or falls back to token auth.
+
+### Smart Re-publish
+
+When publishing to a gateway where agents already exist:
+- **USER.md and MEMORY.md are preserved** — won't overwrite data the agent has learned
+- **Config patch is skipped if unchanged** — avoids gateway restarts that rotate agent tokens
+- **tools.exec.host** is only set if not already configured
+
+### Download Files
+Click **Download Files** to download workspace files for manual deployment.
 
 ---
 
@@ -295,14 +329,15 @@ This means your agents on the canvas **don't need to be connected with edges**. 
 
 | File | Format | Purpose |
 |------|--------|---------|
-| **SOUL.md** | Lowercase prose, no headers | Personality prompt: "you are analytical, data-driven..." |
-| **AGENTS.md** | Structured markdown with `##` headers | Operating instructions: Role, Mission, Capabilities, Rules |
+| **SOUL.md** | Structured markdown with `##` headers | Personality: Core Truths, Boundaries, Vibe, Continuity |
+| **AGENTS.md** | Structured markdown with `##` headers | Operating manual: Role, Mission, Capabilities, Red Lines, Memory |
 | **SKILL.md** | YAML frontmatter + markdown | Only file with frontmatter: `---\nname: ...\n---` |
-| **openclaw.json** | JSON | Agent list, model defaults, channel bindings |
-| **IDENTITY.md** | Markdown | Agent name and role |
-| **TOOLS.md** | Markdown | Tool binding notes |
-| **USER.md** | Markdown | Owner preferences (fill in yourself) |
-| **MEMORY.md** | Markdown | Long-term memory (curated over time) |
+| **openclaw.json** | JSON | Agent list, model defaults, channel bindings, tools config |
+| **IDENTITY.md** | Markdown | Self-identity (name, creature, vibe, emoji, avatar) |
+| **TOOLS.md** | Markdown | Local environment notes (not auto-managed bindings) |
+| **USER.md** | Markdown | About the human owner (preserved on re-publish) |
+| **MEMORY.md** | Markdown | Long-term curated memory (preserved on re-publish) |
+| **HEARTBEAT.md** | Markdown | Periodic task checklist (empty = skip heartbeats) |
 
 ### Channel Bindings
 
@@ -334,19 +369,21 @@ Routing priority: peer > parentPeer > guildId+roles > guildId > teamId > account
 
 ## Tips
 
-1. **Start with AI chat** — Describe your use case in plain English. The AI understands OpenClaw deeply and will generate proper agents.
+1. **Start with a template** — Pick the closest match from 8 real-world templates, then customize with AI chat.
 
-2. **Click to configure** — After the AI generates agents, click each node to fine-tune the personality, tools, and rules.
+2. **Browse ClawHub** — Use the skill browser to find real community skills instead of typing names manually.
 
 3. **Set channel bindings** — Assign each agent to a channel (Telegram, WhatsApp, etc.) in the Channel Binding section.
 
-4. **Preview before publishing** — Always use "Generate Preview" to inspect the workspace files before writing to disk.
+4. **Preview before publishing** — Always use "Generate Preview" to inspect workspace files before pushing to gateway.
 
-5. **SOUL.md is lowercase** — This is an official OpenClaw convention. The personality prompt should be informal lowercase prose, not structured markdown.
+5. **Re-publish safely** — Studio preserves USER.md and MEMORY.md on re-publish, so your agent's learned data is safe.
 
 6. **Agents don't need edges** — Unlike pipeline tools, OpenClaw agents are independent. Use handoffs for coordination.
 
-7. **Run `openclaw restart`** — After publishing, restart the gateway to pick up the new workspace files.
+7. **Gateway auto-wakes agents** — After publish, Studio sends a wakeup message to each agent automatically. No manual `openclaw restart` needed.
+
+8. **Theme toggle** — Switch between light and dark themes using the toggle in the sidebar.
 
 ---
 
@@ -372,7 +409,14 @@ Routing priority: peer > parentPeer > guildId+roles > guildId > teamId > account
 - Check browser console for errors
 - Ensure the frontend is running on port 3000
 
-### Published files not picked up by OpenClaw
-- Verify files are in `~/.openclaw/` (check with `ls ~/.openclaw/`)
-- Run `openclaw restart` after publishing
-- Check `openclaw.json` has the correct workspace paths
+### Gateway publish fails
+- Verify the gateway is running and reachable at the configured URL
+- Check the gateway URL format: `ws://localhost:18789` or `wss://host:18789`
+- If using token auth, ensure `controlUi.allowInsecureAuth` is enabled on the gateway
+- If using device auth, verify `~/.openclaw/identity/device.json` exists
+- Check the backend terminal for detailed RPC error messages
+
+### ClawHub skill search not working
+- Skill search requires a running gateway connection
+- The gateway proxies ClawHub searches — ensure the gateway has internet access
+- You can still type skill names manually without search

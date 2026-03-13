@@ -5,7 +5,7 @@ import { gitAdapter } from '../adapters/git.adapter';
 import { gatewayAdapter } from '../adapters/gateway.adapter';
 import { exportService } from '../services/export.service';
 import { designService } from '../services/design.service';
-import { gatewayHealth, gatewayListAgents, gatewayGetConfig, detectAuthMode, type GatewayConfig, type AuthMode } from '../services/gateway-rpc';
+import { gatewayHealth, gatewayListAgents, gatewayGetConfig, gatewaySkillsSearch, gatewaySkillsList, gatewaySkillInstall, detectAuthMode, type GatewayConfig, type AuthMode } from '../services/gateway-rpc';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -383,6 +383,62 @@ publishRouter.get('/history', (_req: Request, res: Response) => {
       created_at: r.created_at,
       updated_at: r.updated_at,
     })));
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// ── Skills (ClawHub) via Gateway RPC ─────────────────────────────
+
+function buildGwConfig(body: Record<string, unknown>): GatewayConfig {
+  // Try request body first, fall back to local openclaw.json
+  const localConfig = readLocalGatewayConfig();
+  return {
+    url: (body.gateway_url as string) || localConfig?.url || 'ws://localhost:18789',
+    token: (body.gateway_token as string) || localConfig?.token,
+    insecureTls: (body.insecure_tls as boolean) ?? false,
+    authMode: ((body.auth_mode as string) || 'auto') as AuthMode,
+  };
+}
+
+// POST /api/publish/gateway/skills/search - Search ClawHub skills via gateway
+publishRouter.post('/gateway/skills/search', async (req: Request, res: Response) => {
+  try {
+    const { query } = req.body;
+    if (!query) {
+      res.status(400).json({ error: { message: 'query is required' } });
+      return;
+    }
+    const gwConfig = buildGwConfig(req.body);
+    const results = await gatewaySkillsSearch(query, gwConfig);
+    res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// GET /api/publish/gateway/skills/list - List installed skills on gateway
+publishRouter.post('/gateway/skills/list', async (req: Request, res: Response) => {
+  try {
+    const gwConfig = buildGwConfig(req.body);
+    const skills = await gatewaySkillsList(gwConfig);
+    res.json({ skills });
+  } catch (err) {
+    res.status(500).json({ error: { message: (err as Error).message } });
+  }
+});
+
+// POST /api/publish/gateway/skills/install - Install a skill from ClawHub via gateway
+publishRouter.post('/gateway/skills/install', async (req: Request, res: Response) => {
+  try {
+    const { skill_name, agent_id } = req.body;
+    if (!skill_name) {
+      res.status(400).json({ error: { message: 'skill_name is required' } });
+      return;
+    }
+    const gwConfig = buildGwConfig(req.body);
+    const result = await gatewaySkillInstall(skill_name, gwConfig, agent_id as string | undefined);
+    res.json({ ok: true, result });
   } catch (err) {
     res.status(500).json({ error: { message: (err as Error).message } });
   }

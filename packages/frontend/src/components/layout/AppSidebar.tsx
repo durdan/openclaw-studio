@@ -1,6 +1,7 @@
 'use client';
 
 import { useDesignStore } from '@/store/design.store';
+import { ThemeToggle } from '@/components/common/ThemeToggle';
 
 export type AppView = 'home' | 'studio' | 'templates' | 'gateway';
 
@@ -70,8 +71,9 @@ export function AppSidebar({ activeView, onNavigate }: AppSidebarProps) {
       </nav>
 
       {/* Bottom */}
-      <div className="border-t border-studio-border px-3 py-3">
-        <p className="text-[10px] text-studio-text-muted/40 text-center">OpenClaw Studio v0.1</p>
+      <div className="border-t border-studio-border px-2 py-2 space-y-1">
+        <ThemeToggle />
+        <p className="px-2.5 text-[10px] text-studio-text-muted/40">v0.1</p>
       </div>
     </div>
   );
