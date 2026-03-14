@@ -16,9 +16,10 @@ const SUGGESTIONS = [
 
 interface LandingPageProps {
   onOpenStudio: () => void;
+  onOpenWizard?: () => void;
 }
 
-export function LandingPage({ onOpenStudio }: LandingPageProps) {
+export function LandingPage({ onOpenStudio, onOpenWizard }: LandingPageProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [prompt, setPrompt] = useState('');
 
@@ -202,7 +203,7 @@ export function LandingPage({ onOpenStudio }: LandingPageProps) {
         </div>
 
         {/* Suggestion Chips */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-12">
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
           {SUGGESTIONS.map((s) => (
             <button
               key={s.label}
@@ -214,6 +215,21 @@ export function LandingPage({ onOpenStudio }: LandingPageProps) {
             </button>
           ))}
         </div>
+
+        {/* Guided Setup */}
+        {onOpenWizard && (
+          <div className="flex justify-center mb-12">
+            <button
+              onClick={onOpenWizard}
+              className="flex items-center gap-2 rounded-full border border-studio-accent/30 bg-studio-accent/5 px-5 py-2 text-xs font-medium text-studio-accent hover:bg-studio-accent/10 transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+              New here? Try the Guided Setup
+            </button>
+          </div>
+        )}
 
         {/* Stats Row */}
         {(designs.length > 0 || templates.length > 0) && (

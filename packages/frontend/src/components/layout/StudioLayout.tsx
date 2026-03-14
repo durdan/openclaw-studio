@@ -8,6 +8,7 @@ import { ToastProvider, useToast } from '@/components/common/Toast';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { AppSidebar, type AppView } from './AppSidebar';
 import { LandingPage } from './LandingPage';
+import { SetupWizard } from '@/components/wizard/SetupWizard';
 import { useCanvasStore } from '@/store/canvas.store';
 import { useDesignStore } from '@/store/design.store';
 import { useValidation } from '@/hooks/useValidation';
@@ -93,11 +94,18 @@ function StudioLayoutInner() {
 
       {/* Main Content */}
       {activeView === 'home' && (
-        <LandingPage onOpenStudio={() => setActiveView('studio')} />
+        <LandingPage onOpenStudio={() => setActiveView('studio')} onOpenWizard={() => setActiveView('wizard')} />
+      )}
+
+      {activeView === 'wizard' && (
+        <SetupWizard
+          onComplete={() => setActiveView('studio')}
+          onCancel={() => setActiveView('home')}
+        />
       )}
 
       {activeView === 'templates' && (
-        <LandingPage onOpenStudio={() => setActiveView('studio')} />
+        <LandingPage onOpenStudio={() => setActiveView('studio')} onOpenWizard={() => setActiveView('wizard')} />
       )}
 
       {activeView === 'gateway' && (
