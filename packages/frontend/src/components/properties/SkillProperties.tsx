@@ -128,7 +128,7 @@ export function SkillProperties({ nodeId }: SkillPropertiesProps) {
         </svg>
         <div className="flex-1 min-w-0">
           <span className="text-xs font-medium text-studio-accent">Browse ClawHub</span>
-          <p className="text-[9px] text-studio-text-muted">Search 45,000+ community skills</p>
+          <p className="text-[9px] text-studio-text-muted">Search community skills (local index)</p>
         </div>
         {isClawHubSkill && (
           <span className="text-[8px] bg-emerald-500/20 text-emerald-400 rounded-full px-2 py-0.5 flex-shrink-0">

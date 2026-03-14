@@ -12,6 +12,8 @@ import { assetsRouter } from './routes/assets';
 import { templatesRouter } from './routes/templates';
 import { publishRouter } from './routes/publish';
 import { chatRouter } from './routes/chat';
+import { clawhubRouter } from './routes/clawhub';
+import { syncClawHub } from './services/clawhub-sync.service';
 
 // Initialize database and run migrations before starting the server
 runMigrations();
@@ -31,6 +33,7 @@ app.use('/api/assets', assetsRouter);
 app.use('/api/templates', templatesRouter);
 app.use('/api/publish', publishRouter);
 app.use('/api/chat', chatRouter);
+app.use('/api/clawhub', clawhubRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -42,6 +45,11 @@ app.use(errorHandler);
 
 app.listen(config.port, () => {
   console.log(`OpenClaw Studio backend running on port ${config.port}`);
+
+  // Sync ClawHub skills in background (non-blocking)
+  syncClawHub()
+    .then((result) => console.log(`ClawHub: ${result.message}`))
+    .catch((err) => console.warn(`ClawHub sync failed (non-fatal): ${err.message}`));
 });
 
 export default app;

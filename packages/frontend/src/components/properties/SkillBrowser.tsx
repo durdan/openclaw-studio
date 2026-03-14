@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { api } from '@/lib/api';
 
 interface ClawHubSkill {
@@ -14,6 +14,12 @@ interface ClawHubSkill {
   downloads?: number;
 }
 
+interface SyncState {
+  status: 'pending' | 'syncing' | 'success' | 'error';
+  skill_count: number;
+  error_message?: string;
+}
+
 interface SkillBrowserProps {
   onSelect: (skill: ClawHubSkill) => void;
   onClose: () => void;
@@ -25,7 +31,28 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [syncState, setSyncState] = useState<SyncState | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Check sync status on mount
+  useEffect(() => {
+    api.get<SyncState>('/clawhub/sync/status')
+      .then(setSyncState)
+      .catch(() => {/* ignore */});
+  }, []);
+
+  // Load popular skills on mount (empty query)
+  useEffect(() => {
+    if (syncState?.status === 'success' && syncState.skill_count > 0) {
+      api.get<{ skills: ClawHubSkill[] }>('/clawhub/skills/search?q=&limit=10')
+        .then((data) => {
+          if (!searched && data.skills?.length) {
+            setResults(data.skills);
+          }
+        })
+        .catch(() => {/* ignore */});
+    }
+  }, [syncState, searched]);
 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) {
@@ -36,14 +63,13 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
     setIsSearching(true);
     setError(null);
     try {
-      const data = await api.post<{ results: unknown }>('/publish/gateway/skills/search', { query: q });
-      const raw = data.results;
-      // Gateway may return array or object with skills
-      const skills = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.skills || [];
-      setResults(skills as ClawHubSkill[]);
+      const data = await api.get<{ skills: ClawHubSkill[] }>(
+        `/clawhub/skills/search?q=${encodeURIComponent(q)}&limit=20`,
+      );
+      setResults(data.skills || []);
       setSearched(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed — is the gateway running?');
+      setError(err instanceof Error ? err.message : 'Search failed');
       setResults([]);
       setSearched(true);
     } finally {
@@ -54,7 +80,7 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
   const handleInput = (value: string) => {
     setQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(value), 500);
+    debounceRef.current = setTimeout(() => search(value), 300);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -65,6 +91,17 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
     if (e.key === 'Escape') onClose();
   };
 
+  const triggerSync = async () => {
+    try {
+      await api.post('/clawhub/sync/trigger');
+      setSyncState((prev) => prev ? { ...prev, status: 'syncing' } : { status: 'syncing', skill_count: 0 });
+    } catch {/* ignore */}
+  };
+
+  const isSyncing = syncState?.status === 'syncing';
+  const isSyncError = syncState?.status === 'error';
+  const hasSkills = (syncState?.skill_count || 0) > 0;
+
   return (
     <div className="rounded-lg border border-studio-accent/30 bg-studio-bg overflow-hidden">
       {/* Header */}
@@ -74,6 +111,11 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
           <span className="text-[10px] font-semibold text-studio-accent">ClawHub Skill Search</span>
+          {hasSkills && (
+            <span className="text-[8px] text-studio-text-muted">
+              ({syncState!.skill_count.toLocaleString()} skills)
+            </span>
+          )}
         </div>
         <button onClick={onClose} className="text-studio-text-muted hover:text-studio-text transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -81,6 +123,27 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
           </svg>
         </button>
       </div>
+
+      {/* Sync status banner */}
+      {isSyncing && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-studio-accent/5 border-b border-studio-accent/10">
+          <svg className="w-3 h-3 animate-spin text-studio-accent" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-[9px] text-studio-accent">Indexing ClawHub skills...</span>
+        </div>
+      )}
+      {isSyncError && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-red-500/5 border-b border-red-500/10">
+          <span className="text-[9px] text-red-400">
+            Sync error: {syncState?.error_message || 'Unknown'}
+          </span>
+          <button onClick={triggerSync} className="text-[9px] text-studio-accent hover:underline">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Search input */}
       <div className="px-3 py-2">
@@ -109,10 +172,6 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
         {error && (
           <div className="px-3 py-3">
             <p className="text-[10px] text-red-400">{error}</p>
-            <p className="text-[10px] text-studio-text-muted mt-1">
-              Tip: The gateway must be running for skill search to work.
-              You can still type a skill name manually.
-            </p>
           </div>
         )}
 
@@ -124,6 +183,9 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
 
         {!isSearching && results.length > 0 && (
           <div className="px-2 pb-2 space-y-1">
+            {!searched && (
+              <p className="text-[9px] text-studio-text-muted px-1 py-1">Popular skills</p>
+            )}
             {results.map((skill, i) => (
               <button
                 key={skill.slug || skill.name || i}
@@ -135,10 +197,13 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
                   {skill.version && (
                     <span className="text-[9px] text-studio-text-muted font-mono">v{skill.version}</span>
                   )}
+                  {skill.author && (
+                    <span className="text-[9px] text-studio-text-muted">by {skill.author}</span>
+                  )}
                 </div>
-                {(skill.description || skill.summary) && (
+                {skill.description && (
                   <span className="text-[10px] text-studio-text-muted line-clamp-2 mt-0.5">
-                    {skill.description || skill.summary}
+                    {skill.description}
                   </span>
                 )}
                 {skill.tags && skill.tags.length > 0 && (
@@ -155,10 +220,14 @@ export function SkillBrowser({ onSelect, onClose }: SkillBrowserProps) {
           </div>
         )}
 
-        {!searched && !isSearching && (
+        {!searched && !isSearching && results.length === 0 && (
           <div className="px-3 py-4 text-center">
-            <p className="text-[10px] text-studio-text-muted">Search ClawHub for real OpenClaw skills</p>
-            <p className="text-[9px] text-studio-text-muted/60 mt-1">Requires gateway connection</p>
+            <p className="text-[10px] text-studio-text-muted">
+              {hasSkills
+                ? `Search ${syncState!.skill_count.toLocaleString()} indexed ClawHub skills`
+                : 'ClawHub skills are being indexed...'}
+            </p>
+            <p className="text-[9px] text-studio-text-muted/60 mt-1">Local search — no gateway required</p>
           </div>
         )}
       </div>
